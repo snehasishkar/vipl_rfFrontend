@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <signal.h>
 
 #include "../include/fifo_read_write.h"
 #include "../include/vipl_printf.h"
@@ -37,6 +38,12 @@ void fifo_read_write::fifo_read(){
 			return;
 		while((noofBytesRead=read(fd_read, buffer+noofBytesAlreadyRead, (sizeof(command)*NMBELEMENT)-noofBytesAlreadyRead))>0x00){
 			noofBytesAlreadyRead+=noofBytesRead;
+		}
+		if(noofBytesAlreadyRead==0x00){
+			int32_t rtnval = raise(SIGINT);
+			if(rtnval==SIG_ERR)
+				vipl_printf("error: failed in raising SIGINT", error_lvl, __FILE__, __LINE__);
+
 		}
 		if(noofBytesAlreadyRead!=(sizeof(command)*NMBELEMENT)){
 			char msg[100]={0x00};
@@ -62,12 +69,12 @@ void fifo_read_write::fifo_read(){
 			sprintf(msg, "error: unable to set sem_wait %s", strerror(errno));
 			vipl_printf(msg, error_lvl, __FILE__, __LINE__);
 		}
+		sem_post(&wait);
 	}
 	free(buffer);
 }
 
-int8_t fifo_read_write::fifo_write(){
-	struct command_from_DSP response;
+int8_t fifo_read_write::fifo_write(struct command_from_DSP response){
 	uint8_t *buffer = (uint8_t*)malloc(sizeof(response));
 	bzero(buffer,sizeof(char)*sizeof(response));
 	size_t noofBytesRead = write(fd_write, buffer, sizeof(response)*NMBELEMENT);
@@ -209,8 +216,8 @@ int32_t fifo_read_write::samplesWrite(complex<float> *buffer, int32_t bytes_to_w
 		return -1;
 	}else{
 		char *msg=(char *)malloc(100);
-		bzero(msg,sizeof(complex<float>)*bytes_to_write);
-		sprintf(msg, "info: %d Bytes wrote", strerror(errno));
+		bzero(msg,sizeof(char)*100);
+		sprintf(msg, "info: %d Bytes wrote", noofBytesWrote);
 		vipl_printf(msg, error_lvl, __FILE__, __LINE__);
 		free(msg);
 	}

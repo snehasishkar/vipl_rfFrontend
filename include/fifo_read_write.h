@@ -60,12 +60,14 @@ public:
 	fifo_read_write(char *pipe_command_write, bool write=true);
 	virtual ~fifo_read_write();
 	void fifo_read();
-	int8_t fifo_write();
+	int8_t fifo_write(struct command_from_DSP response);
 	int32_t samplesWrite(complex<float> *buffer, int32_t bytes_to_write);
 };
 
 
 extern queue<struct command_from_DSP> command_queue;
 extern sem_t lock;
+extern sem_t wait;
+
 
 #endif /* INCLUDE_FIFO_READ_WRITE_H_ */

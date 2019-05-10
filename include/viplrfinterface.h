@@ -58,7 +58,6 @@ class vipl_rf_interface {
 	std::string subdev;
 	int32_t mboard;
 	uhd::usrp::multi_usrp::sptr usrp;
-	struct vipl_rf_tap header;
 	uhd::rx_streamer::sptr rx_stream;
 public:
 	vipl_rf_interface();
@@ -66,7 +65,7 @@ public:
 	int8_t set_rx_freq(double freq, int8_t channel);
 	int8_t set_tx_freq(double freq, int8_t channel);
 	int8_t set_gain(double gain, int8_t channel);
-	void start_stream(double freq, int8_t mode, uint8_t channel);
+	void start_stream(double freq, int8_t mode, uint8_t channel, double rate);
 	void get_gps_val(void);
 	bool lock_gps(void);
 	void dequeue(void);
@@ -76,5 +75,9 @@ extern std::queue<std::complex<float>> tx_db_a_buffer;
 extern std::queue<std::complex<float>> tx_db_b_buffer;
 extern std::queue<std::complex<float>> rx_db_a_buffer;
 extern std::queue<std::complex<float>> rx_db_b_buffer;
+
+extern struct vipl_rf_tap rftap_dbA;
+extern struct vipl_rf_tap rftap_dbB;
+
 
 #endif /* INCLUDE_VIPLRFINTERFACE_H_ */

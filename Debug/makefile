@@ -44,7 +44,7 @@ all: vipl_rfFrontEnd
 vipl_rfFrontEnd: $(OBJS) $(USER_OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker'
-	g++ -L"/home/saurabh/workspace/viplRFInterface_v1.00.00/vipl_rfFrontEnd/lib" -L/usr/local/lib/ -o"vipl_rfFrontEnd" $(OBJS) $(USER_OBJS) $(LIBS)
+	g++ -L"/home/decryptor/vipl_rfFrontEnd/lib" -L/usr/local/lib/ -L/usr/lib/x86_64-linux-gnu/libpcap.a -o"vipl_rfFrontEnd" $(OBJS) $(USER_OBJS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 

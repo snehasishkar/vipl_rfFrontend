@@ -8,6 +8,9 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <map>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 #include <gnuradio/types.h>
 #include <gnuradio/top_block.h>
@@ -167,7 +170,7 @@ void change_freq(int8_t usrp_channel, int32_t *channel_list, char band, int32_t 
 		memset(&command, 0x00, sizeof(command));
 		command.change_freq = true;
 		command.freq = freq;
-		int8_t rtnval = fifo_command.fifo_write();
+		int8_t rtnval = fifo_command.fifo_write(command);
 		if(rtnval)
 			vipl_printf("error: Freq could not be changed! unable to write to FIFO", error_lvl, __FILE__, __LINE__);
 	}
@@ -177,7 +180,7 @@ void change_freq(int8_t usrp_channel, int32_t *channel_list, char band, int32_t 
 int8_t create_fifo(char *fifo_name){
 	if(mkfifo(fifo_name,666)!=0x00){
 		char msg[100]={0x00};
-		sprintf(msg, "error: unable to open pipe for writing response %s", strerror(errno));
+		sprintf(msg, "error: unable to create pipe for writing response %s", strerror(errno));
 		vipl_printf(msg, error_lvl, __FILE__, __LINE__);
 		return 0x01;
 	}
@@ -200,7 +203,7 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 	if(create_fifo(fifo_name)!=0x00)
 		vipl_printf("error: unable to create FIFO", error_lvl, __FILE__, __LINE__);
 	int32_t fd_sink;
-#if 0
+#if 1
 	fd_sink = open(fifo_name,O_RDONLY);
 	if(fd_sink<=0x00){
 		vipl_printf("error: unable to open FIFO for reading writing...exiting!!", error_lvl, __FILE__, __LINE__);
@@ -209,10 +212,10 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 #endif
 	enum Equalizer channel_estimation_algo = LS;
 	blocks::file_descriptor_source::sptr fd_source =  blocks::file_descriptor_source::make(sizeof(std::complex<float>)*1,fd_src, false);
-	//blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
-	blocks::file_sink::sptr filesink = blocks::file_sink::make(sizeof(uint8_t)*1,"/home/snehasish/test.pcap",true);
-	blocks::delay::sptr delay_a = blocks::delay::make(VECTOR_SIZE, DELAY_VAR_A);
-	blocks::delay::sptr delay_b = blocks::delay::make(VECTOR_SIZE, DELAY_VAR_B);
+	blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
+	//blocks::file_sink::sptr filesink = blocks::file_sink::make(sizeof(uint8_t)*1,"/home/decryptor/test1.pcap",true);
+	blocks::delay::sptr delay_a = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_A);
+	blocks::delay::sptr delay_b = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_B);
 	blocks::complex_to_mag_squared::sptr complex2mag_a = blocks::complex_to_mag_squared::make(VECTOR_SIZE);
 	blocks::complex_to_mag::sptr complex2mag_b = blocks::complex_to_mag::make(VECTOR_SIZE);
 	blocks::conjugate_cc::sptr conjugate_cc = blocks::conjugate_cc::make();
@@ -225,7 +228,7 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 	ieee802_11::frame_equalizer::sptr frame_equalizer_blk = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,20e6,false, false);
 	blocks::streams_to_vector::sptr streams_to_vector = blocks::streams_to_vector::make(VECTOR_SIZE, FFT_SIZE);
 	fft::fft_vcc::sptr fft_cc = fft::fft_vcc::make(FFT_SIZE, true, fft::window::rectangular(FFT_SIZE), true, 1);
-	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE,FFT_SIZE);
+	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE*sizeof(std::complex<float>),FFT_SIZE);
 	ieee802_11::decode_mac::sptr decode_mac = ieee802_11::decode_mac::make(enable_log,enable_debug);
 #if 1
 	ieee802_11::parse_mac::sptr parse_mac = ieee802_11::parse_mac::make(enable_log, enable_debug);
@@ -239,13 +242,16 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 		fifo_read_write fifo_command(read_path, write_path);
 		boost::thread t1(change_freq, channel, channel_list_band_a, 'a', 48, frame_equalizer_blk, fifo_command);
 	}else{
-		if(strlen(channel_list)>1){
+#if 1
+		if(channel_list[0]>'1'){
 			int32_t chann_list[60]={0x00}, i=0x00;
 			char *token;
+			channel_list = channel_list+1;
 			token = strtok(channel_list,",");
 			while(token!=NULL){
+				//printf("channel: %s\n", token);
 				chann_list[i++] = atoi(token);
-				token = strtok(token,",");
+				token = strtok(token,NULL);
 			}
 			char read_path[100]={0x00};
 			//char write_path[100]={0x00};
@@ -254,17 +260,21 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 			fifo_read_write fifo_command(read_path, read_path);
 			boost::thread t1(change_freq, channel, chann_list, 'a', i-1, frame_equalizer_blk, fifo_command);
 		}else{
-			int32_t channel = atoi(channel_list);
+			int32_t channel = atoi(channel_list+1);
 			double freq = find_freq(channel, 'a');
 			frame_equalizer_blk->set_frequency(freq);
 		}
+#endif
+		int32_t channel = atoi(channel_list);
+		double freq = find_freq(channel, 'a');
+		frame_equalizer_blk->set_frequency(freq);
 	}
 	top_block_sptr tb(make_top_block("wifi_rx"));
 	tb->connect(fd_source,0x00,delay_a,0x00);
 	tb->connect(fd_source,0x00,complex2mag_a,0x00);
 	tb->connect(fd_source,0x00,multiply_cc,0x00);
 	tb->connect(complex2mag_a,0x00, moving_average_float, 0x00);
-	tb->connect(moving_average_float, 0x00, divide_ff, 0x00);
+	tb->connect(moving_average_float, 0x00, divide_ff, 0x01);
 	tb->connect(complex2mag_b, 0x00, divide_ff, 0x00);
 	tb->connect(delay_a,0x00,conjugate_cc,0x00);
 	tb->connect(conjugate_cc,0x00,multiply_cc,0x01);
@@ -275,17 +285,247 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 	tb->connect(divide_ff, 0x00, wifi_sync_short, 0x02);
 	tb->connect(wifi_sync_short,0x00,wifi_sync_long,0x00);
 	tb->connect(wifi_sync_short,0x00,delay_b,0x00);
-	tb->connect(delay_b,0x00,wifi_sync_long,0x00);
+	tb->connect(delay_b,0x00,wifi_sync_long,0x1);
 	tb->connect(wifi_sync_long,0x00,stream_to_vect,0x00);
 	tb->connect(stream_to_vect,0x00,fft_cc,0x00);
-	tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
+	//tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
 	tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
 	tb->connect(frame_equalizer_blk,0x00,decode_mac, 0x00);
 #if 1
 	tb->msg_connect(decode_mac, "out", parse_mac, "in");
 #endif
 	tb->msg_connect(decode_mac, "out", wireshark, "in");
-	//tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
-	tb->connect(wireshark,0, filesink,0);
+	tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
+	//tb->connect(wireshark,0, filesink,0);
 	tb->start();
+	sem_wait(&stop_process);
 }
+
+void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan){
+	vipl_printf("info: Demodualtion for Band G started",error_lvl, __FILE__, __LINE__);
+	char fifo_name[30]={0x00};
+	sprintf(fifo_name,"/tmp/samples_write_%d", channel);
+	int32_t fd_src;
+	label:
+	fd_src = open(fifo_name,O_RDONLY);
+	if(fd_src<=0x00){
+		vipl_printf("error: unable to open FIFO for reading samples...exiting!!", error_lvl, __FILE__, __LINE__);
+		goto label;
+	}
+	bzero(fifo_name, sizeof(char)*30);
+	sprintf(fifo_name,"/tmp/samples_read_%d", channel);
+	if(create_fifo(fifo_name)!=0x00)
+		vipl_printf("error: unable to create FIFO", error_lvl, __FILE__, __LINE__);
+	int32_t fd_sink;
+#if 1
+	fd_sink = open(fifo_name,O_RDONLY);
+	if(fd_sink<=0x00){
+		vipl_printf("error: unable to open FIFO for reading writing...exiting!!", error_lvl, __FILE__, __LINE__);
+
+	}
+#endif
+	enum Equalizer channel_estimation_algo = LS;
+	blocks::file_descriptor_source::sptr fd_source =  blocks::file_descriptor_source::make(sizeof(std::complex<float>)*1,fd_src, false);
+	blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
+	//blocks::file_sink::sptr filesink = blocks::file_sink::make(sizeof(uint8_t)*1,"/home/decryptor/test1.pcap",true);
+	blocks::delay::sptr delay_a = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_A);
+	blocks::delay::sptr delay_b = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_B);
+	blocks::complex_to_mag_squared::sptr complex2mag_a = blocks::complex_to_mag_squared::make(VECTOR_SIZE);
+	blocks::complex_to_mag::sptr complex2mag_b = blocks::complex_to_mag::make(VECTOR_SIZE);
+	blocks::conjugate_cc::sptr conjugate_cc = blocks::conjugate_cc::make();
+	blocks::multiply_cc::sptr multiply_cc = blocks::multiply_cc::make(VECTOR_SIZE);
+	blocks::divide_ff::sptr divide_ff = blocks::divide_ff::make(VECTOR_SIZE);
+	ieee802_11::moving_average_cc::sptr moving_average_complex = ieee802_11::moving_average_cc::make(WINDOW_SIZE);
+	ieee802_11::moving_average_ff::sptr moving_average_float = ieee802_11::moving_average_ff::make(MOVING_AVERAGE_LENGTH);
+	ieee802_11::sync_short::sptr wifi_sync_short = ieee802_11::sync_short::make(0.56, 2, enable_log, enable_debug);
+	ieee802_11::sync_long::sptr wifi_sync_long = ieee802_11::sync_long::make(sync_length, enable_log, enable_debug);
+	ieee802_11::frame_equalizer::sptr frame_equalizer_blk = ieee802_11::frame_equalizer::make(channel_estimation_algo,2412000000.0,20e6,false, false);
+	blocks::streams_to_vector::sptr streams_to_vector = blocks::streams_to_vector::make(VECTOR_SIZE, FFT_SIZE);
+	fft::fft_vcc::sptr fft_cc = fft::fft_vcc::make(FFT_SIZE, true, fft::window::rectangular(FFT_SIZE), true, 1);
+	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE*sizeof(std::complex<float>),FFT_SIZE);
+	ieee802_11::decode_mac::sptr decode_mac = ieee802_11::decode_mac::make(enable_log,enable_debug);
+#if 1
+	ieee802_11::parse_mac::sptr parse_mac = ieee802_11::parse_mac::make(enable_log, enable_debug);
+#endif
+	foo::wireshark_connector::sptr wireshark = foo::wireshark_connector::make(foo::LinkType::WIFI, enable_debug);
+	if(ntwrkscan){
+		char read_path[100]={0x00};
+		char write_path[100]={0x00};
+		sprintf(read_path,"/tmp/command_read_db_%d",channel);
+		sprintf(write_path,"/tmp/command_write_db_%d",channel);
+		fifo_read_write fifo_command(read_path, write_path);
+		boost::thread t1(change_freq, channel, channel_list_band_bg, 'g', 15, frame_equalizer_blk, fifo_command);
+	}else{
+#if 1
+		if(channel_list[0]>'1'){
+			int32_t chann_list[60]={0x00}, i=0x00;
+			char *token;
+			channel_list = channel_list+1;
+			token = strtok(channel_list,",");
+			while(token!=NULL){
+				//printf("channel: %s\n", token);
+				chann_list[i++] = atoi(token);
+				token = strtok(token,NULL);
+			}
+			char read_path[100]={0x00};
+			//char write_path[100]={0x00};
+			sprintf(read_path,"/tmp/command_read_db_%d",channel);
+			//sprintf(write_path,"/tmp/command_write_db_%d",channel);
+			fifo_read_write fifo_command(read_path, read_path);
+			boost::thread t1(change_freq, channel, chann_list, 'g', i-1, frame_equalizer_blk, fifo_command);
+		}else{
+			int32_t channel = atoi(channel_list+1);
+			double freq = find_freq(channel, 'g');
+			frame_equalizer_blk->set_frequency(freq);
+		}
+#endif
+		int32_t channel = atoi(channel_list);
+		double freq = find_freq(channel, 'g');
+		frame_equalizer_blk->set_frequency(freq);
+	}
+	top_block_sptr tb(make_top_block("wifi_rx"));
+	tb->connect(fd_source,0x00,delay_a,0x00);
+	tb->connect(fd_source,0x00,complex2mag_a,0x00);
+	tb->connect(fd_source,0x00,multiply_cc,0x00);
+	tb->connect(complex2mag_a,0x00, moving_average_float, 0x00);
+	tb->connect(moving_average_float, 0x00, divide_ff, 0x01);
+	tb->connect(complex2mag_b, 0x00, divide_ff, 0x00);
+	tb->connect(delay_a,0x00,conjugate_cc,0x00);
+	tb->connect(conjugate_cc,0x00,multiply_cc,0x01);
+	tb->connect(multiply_cc,0x00,moving_average_complex,0x00);
+	tb->connect(moving_average_complex,0x00,complex2mag_b,0x00);
+	tb->connect(delay_a,0x00,wifi_sync_short,0x00);
+	tb->connect(moving_average_complex,0x00, wifi_sync_short,0x01);
+	tb->connect(divide_ff, 0x00, wifi_sync_short, 0x02);
+	tb->connect(wifi_sync_short,0x00,wifi_sync_long,0x00);
+	tb->connect(wifi_sync_short,0x00,delay_b,0x00);
+	tb->connect(delay_b,0x00,wifi_sync_long,0x1);
+	tb->connect(wifi_sync_long,0x00,stream_to_vect,0x00);
+	tb->connect(stream_to_vect,0x00,fft_cc,0x00);
+	//tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
+	tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
+	tb->connect(frame_equalizer_blk,0x00,decode_mac, 0x00);
+#if 1
+	tb->msg_connect(decode_mac, "out", parse_mac, "in");
+#endif
+	tb->msg_connect(decode_mac, "out", wireshark, "in");
+	tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
+	//tb->connect(wireshark,0, filesink,0);
+	tb->start();
+	sem_wait(&stop_process);
+}
+
+void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan){
+	vipl_printf("info: Demodualtion for Band P started",error_lvl, __FILE__, __LINE__);
+	char fifo_name[30]={0x00};
+	sprintf(fifo_name,"/tmp/samples_write_%d", channel);
+	int32_t fd_src;
+	label:
+	fd_src = open(fifo_name,O_RDONLY);
+	if(fd_src<=0x00){
+		vipl_printf("error: unable to open FIFO for reading samples...exiting!!", error_lvl, __FILE__, __LINE__);
+		goto label;
+	}
+	bzero(fifo_name, sizeof(char)*30);
+	sprintf(fifo_name,"/tmp/samples_read_%d", channel);
+	if(create_fifo(fifo_name)!=0x00)
+		vipl_printf("error: unable to create FIFO", error_lvl, __FILE__, __LINE__);
+	int32_t fd_sink;
+#if 1
+	fd_sink = open(fifo_name,O_RDONLY);
+	if(fd_sink<=0x00){
+		vipl_printf("error: unable to open FIFO for reading writing...exiting!!", error_lvl, __FILE__, __LINE__);
+
+	}
+#endif
+	enum Equalizer channel_estimation_algo = LS;
+	blocks::file_descriptor_source::sptr fd_source =  blocks::file_descriptor_source::make(sizeof(std::complex<float>)*1,fd_src, false);
+	blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
+	//blocks::file_sink::sptr filesink = blocks::file_sink::make(sizeof(uint8_t)*1,"/home/decryptor/test1.pcap",true);
+	blocks::delay::sptr delay_a = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_A);
+	blocks::delay::sptr delay_b = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_B);
+	blocks::complex_to_mag_squared::sptr complex2mag_a = blocks::complex_to_mag_squared::make(VECTOR_SIZE);
+	blocks::complex_to_mag::sptr complex2mag_b = blocks::complex_to_mag::make(VECTOR_SIZE);
+	blocks::conjugate_cc::sptr conjugate_cc = blocks::conjugate_cc::make();
+	blocks::multiply_cc::sptr multiply_cc = blocks::multiply_cc::make(VECTOR_SIZE);
+	blocks::divide_ff::sptr divide_ff = blocks::divide_ff::make(VECTOR_SIZE);
+	ieee802_11::moving_average_cc::sptr moving_average_complex = ieee802_11::moving_average_cc::make(WINDOW_SIZE);
+	ieee802_11::moving_average_ff::sptr moving_average_float = ieee802_11::moving_average_ff::make(MOVING_AVERAGE_LENGTH);
+	ieee802_11::sync_short::sptr wifi_sync_short = ieee802_11::sync_short::make(0.56, 2, enable_log, enable_debug);
+	ieee802_11::sync_long::sptr wifi_sync_long = ieee802_11::sync_long::make(sync_length, enable_log, enable_debug);
+	ieee802_11::frame_equalizer::sptr frame_equalizer_blk = ieee802_11::frame_equalizer::make(channel_estimation_algo,5860000000.0,20e6,false, false);
+	blocks::streams_to_vector::sptr streams_to_vector = blocks::streams_to_vector::make(VECTOR_SIZE, FFT_SIZE);
+	fft::fft_vcc::sptr fft_cc = fft::fft_vcc::make(FFT_SIZE, true, fft::window::rectangular(FFT_SIZE), true, 1);
+	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE*sizeof(std::complex<float>),FFT_SIZE);
+	ieee802_11::decode_mac::sptr decode_mac = ieee802_11::decode_mac::make(enable_log,enable_debug);
+#if 1
+	ieee802_11::parse_mac::sptr parse_mac = ieee802_11::parse_mac::make(enable_log, enable_debug);
+#endif
+	foo::wireshark_connector::sptr wireshark = foo::wireshark_connector::make(foo::LinkType::WIFI, enable_debug);
+	if(ntwrkscan){
+		char read_path[100]={0x00};
+		char write_path[100]={0x00};
+		sprintf(read_path,"/tmp/command_read_db_%d",channel);
+		sprintf(write_path,"/tmp/command_write_db_%d",channel);
+		fifo_read_write fifo_command(read_path, write_path);
+		boost::thread t1(change_freq, channel, channel_list_band_p, 'p', 7, frame_equalizer_blk, fifo_command);
+	}else{
+#if 1
+		if(channel_list[0]>'1'){
+			int32_t chann_list[60]={0x00}, i=0x00;
+			char *token;
+			channel_list = channel_list+1;
+			token = strtok(channel_list,",");
+			while(token!=NULL){
+				//printf("channel: %s\n", token);
+				chann_list[i++] = atoi(token);
+				token = strtok(token,NULL);
+			}
+			char read_path[100]={0x00};
+			//char write_path[100]={0x00};
+			sprintf(read_path,"/tmp/command_read_db_%d",channel);
+			//sprintf(write_path,"/tmp/command_write_db_%d",channel);
+			fifo_read_write fifo_command(read_path, read_path);
+			boost::thread t1(change_freq, channel, chann_list, 'p', i-1, frame_equalizer_blk, fifo_command);
+		}else{
+			int32_t channel = atoi(channel_list+1);
+			double freq = find_freq(channel, 'p');
+			frame_equalizer_blk->set_frequency(freq);
+		}
+#endif
+		int32_t channel = atoi(channel_list);
+		double freq = find_freq(channel, 'p');
+		frame_equalizer_blk->set_frequency(freq);
+	}
+	top_block_sptr tb(make_top_block("wifi_rx"));
+	tb->connect(fd_source,0x00,delay_a,0x00);
+	tb->connect(fd_source,0x00,complex2mag_a,0x00);
+	tb->connect(fd_source,0x00,multiply_cc,0x00);
+	tb->connect(complex2mag_a,0x00, moving_average_float, 0x00);
+	tb->connect(moving_average_float, 0x00, divide_ff, 0x01);
+	tb->connect(complex2mag_b, 0x00, divide_ff, 0x00);
+	tb->connect(delay_a,0x00,conjugate_cc,0x00);
+	tb->connect(conjugate_cc,0x00,multiply_cc,0x01);
+	tb->connect(multiply_cc,0x00,moving_average_complex,0x00);
+	tb->connect(moving_average_complex,0x00,complex2mag_b,0x00);
+	tb->connect(delay_a,0x00,wifi_sync_short,0x00);
+	tb->connect(moving_average_complex,0x00, wifi_sync_short,0x01);
+	tb->connect(divide_ff, 0x00, wifi_sync_short, 0x02);
+	tb->connect(wifi_sync_short,0x00,wifi_sync_long,0x00);
+	tb->connect(wifi_sync_short,0x00,delay_b,0x00);
+	tb->connect(delay_b,0x00,wifi_sync_long,0x1);
+	tb->connect(wifi_sync_long,0x00,stream_to_vect,0x00);
+	tb->connect(stream_to_vect,0x00,fft_cc,0x00);
+	//tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
+	tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
+	tb->connect(frame_equalizer_blk,0x00,decode_mac, 0x00);
+#if 1
+	tb->msg_connect(decode_mac, "out", parse_mac, "in");
+#endif
+	tb->msg_connect(decode_mac, "out", wireshark, "in");
+	tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
+	//tb->connect(wireshark,0, filesink,0);
+	tb->start();
+	sem_wait(&stop_process);
+}
+

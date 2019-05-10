@@ -8,22 +8,38 @@
 #include <iostream>
 #include <string>
 #include <queue>
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <getopt.h>
 #include <boost/thread.hpp>
 #include <semaphore.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 
+#include "../include/config4cpp/Configuration.h"
 #include "../include/fifo_read_write.h"
 #include "../include/vipl_printf.h"
 #include "../include/viplrfinterface.h"
+#include "../include/vipl_wifi_config.h"
+
 int32_t error_lvl = 0x00;
 
 sem_t lock;
+sem_t stop_process;
+sem_t wait;
+
+extern int errno;
+
+bool wait_done = false;
+
 bool stop_rx = false;
 bool stop_gps = false;
 bool stop_read_fifo = false;
+
+using namespace config4cpp;
 
 void printUsage(void){
 	fprintf(stderr,"\t ./viplrfFrontend -e <1/2/3>");
@@ -39,7 +55,9 @@ void intHandler(int dummy) {
 	stop_gps = true;
 	stop_read_fifo = true;
 	vipl_printf("ALERT: sigint got..exiting!!", error_lvl, __FILE__, __LINE__);
-	sleep(1);
+	sem_post(&stop_process);
+	sleep(3);
+	sem_destroy(&stop_process);
 	exit(EXIT_SUCCESS);
 }
 
@@ -48,21 +66,230 @@ void initUSRP(){
 	vipl_rf_interface rf_interface;
 }
 
+void parse_configfile(char *config_file_path){
+	const char default_configFile[300] = {"../config/viplrfConfig.cfg"};
+	if(strlen(config_file_path)>0){
+		bzero(default_configFile,sizeof(char)*300);
+		strcpy(default_configFile,config_file_path);
+	}
+	FILE *fp = fopen(default_configFile,"r");
+	if(fp==NULL){
+		vipl_printf("error: unable to find config file", error_lvl, __FILE__, __LINE__);
+		exit(EXIT_FAILURE);
+	}
+	fclose(fp);
+	const char *scope = "";
+	Configuration *  cfg = Configuration::create();
+	StringBuffer filter, m_scope;
+	StringVector scopes;
+	m_scope = scope;
+	Configuration::mergeNames(scope, "uid-board", filter);
+	retry:
+	int32_t fd_read = open("/tmp/pipe_command_write",666);
+	if(fd_read<=0)
+	  goto retry;
+	label:
+	int32_t fd_write = open("/tmp/pipe_command_read",666);
+	if(fd_write<=0)
+		goto label;
 
+	try{
+		cfg->parse(default_configFile);
+		cfg->listFullyScopedNames(m_scope.c_str(), "", Configuration::CFG_SCOPE, false, filter.c_str(), scopes);
+		int len = scopes.length();
+		for(int i=0; i<len; i++){
+			char *scope = new char(20);
+			strcpy(scope, scopes[i]);
+			int mode, db_board, mboard;
+			bool change_freq, change_gain, init_board, ntwrkscan, getgps;
+			float freq, gain, samp_rate, atten, bandwidth, lo_offset, tx_power;
+			char mboard_addr[34], channel_list[14], band[2], technology[6];
+			mode = cfg->lookupInt(scope, "db0.mode");
+			db_board = cfg->lookupInt(scope, "db0.db_board");
+		    mboard = cfg->lookupInt(scope, "db0.mboard");
+			change_freq = cfg->lookupBoolean(scope, "db0.change_freq");
+			change_gain = cfg->lookupBoolean(scope, "db0.change_gain");
+			init_board = cfg->lookupBoolean(scope, "db0.init_board");
+			ntwrkscan = cfg->lookupBoolean(scope, "db0.ntwrkscan");
+			getgps = cfg->lookupBoolean(scope, "db0.getgps");
+			freq = cfg->lookupFloat(scope, "db0.freq");
+			gain = cfg->lookupFloat(scope, "db0.gain");
+			samp_rate = cfg->lookupFloat(scope, "db0.samp_rate");
+			atten = cfg->lookupFloat(scope, "db0.atten");
+			bandwidth = cfg->lookupFloat(scope, "db0.bandwidth");
+			lo_offset = cfg->lookupFloat(scope, "db0.lo_offset");
+			tx_power = cfg->lookupFloat(scope, "db0.tx_power");
+			strcpy(mboard_addr, cfg->lookupString(scope, "db0.mboard_addr"));
+			strcpy(channel_list, cfg->lookupString(scope, "db0.channel_list"));
+			strcpy(band, cfg->lookupString(scope, "db0.band"));
+			strcpy(technology, cfg->lookupString(scope, "db0.technology"));
+            struct command_from_DSP command_db0;
+            bzero(&command_db0, sizeof(struct command_from_DSP));
+            command_db0.mode = mode;
+            command_db0.db_board = db_board;
+            command_db0.mboard = mboard;
+            command_db0.change_freq = change_freq;
+            command_db0.change_gain = change_gain;
+            command_db0.init_board = false;
+            command_db0.ntwrkscan = ntwrkscan;
+            command_db0.getgps = false;
+            command_db0.freq = freq;
+            command_db0.gain = gain;
+            command_db0.samp_rate = samp_rate;
+            command_db0.atten = atten;
+            command_db0.bandwidth = bandwidth;
+            command_db0.lo_offset = lo_offset;
+            command_db0.tx_power = tx_power;
+            strcpy(command_db0.mboard_addr, mboard_addr);
+            strcpy(command_db0.channel_list, channel_list);
+            strcpy(command_db0.band, band);
+            strcpy(command_db0.technology, technology);
+            if(init_board){
+           		command_db0.getgps = false;
+           		command_db0.init_board = init_board;
+           		uint8_t *buffer = (uint8_t*)malloc(sizeof(command_db0));
+           		bzero(buffer,sizeof(char)*sizeof(command_db0));
+           		memcpy(buffer, &command_db0, sizeof(command_db0));
+           		size_t noofBytesRead = write(fd_write, buffer, sizeof(command_db0));
+           		if(noofBytesRead!=(sizeof(command_db0))){
+           			char msg[100]={0x00};
+           			sprintf(msg, "error: read::%s", strerror(errno));
+           			vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+           			return 0x01;
+           		}else{
+           			char *msg=(char *)malloc(sizeof(char)*sizeof(command_db0)+20);
+           			bzero(msg,sizeof(char)*sizeof(command_db0));
+           			sprintf(msg, "info: %d Bytes wrote %s", noofBytesRead,(char *)buffer);
+           			vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+           			free(msg);
+           		}
+           		sem_wait(&wait);
+
+           	}
+           	if(getgps){
+           		command_db0.getgps = getgps;
+           		command_db0.init_board = false;
+           		uint8_t *buffer = (uint8_t*)malloc(sizeof(command_db0));
+           		bzero(buffer,sizeof(char)*sizeof(command_db0));
+           		memcpy(buffer, &command_db0, sizeof(command_db0));
+           		size_t noofBytesRead = write(fd_write, buffer, sizeof(command_db0));
+           		if(noofBytesRead!=(sizeof(command_db0))){
+           			char msg[100]={0x00};
+           			sprintf(msg, "error: read::%s", strerror(errno));
+           			vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+           			return 0x01;
+           		}else{
+           			char *msg=(char *)malloc(sizeof(char)*sizeof(command_db0)+20);
+           			bzero(msg,sizeof(char)*sizeof(command_db0));
+           			sprintf(msg, "info: %d Bytes wrote %s", strerror(errno),(char *)buffer);
+           			vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+           			free(msg);
+           		}
+           		sem_wait(&wait);
+           		//write command in FIFO
+           	}
+            mode = cfg->lookupInt(scope, "db1.mode");
+			db_board = cfg->lookupInt(scope, "db1.db_board");
+			mboard = cfg->lookupInt(scope, "db1.mboard");
+			change_freq = cfg->lookupBoolean(scope, "db1.change_freq");
+			change_gain = cfg->lookupBoolean(scope, "db1.change_gain");
+			init_board = cfg->lookupBoolean(scope, "db1.init_board");
+			ntwrkscan = cfg->lookupBoolean(scope, "db1.ntwrkscan");
+			getgps = cfg->lookupBoolean(scope, "db1.getgps");
+			freq = cfg->lookupFloat(scope, "db1.freq");
+			gain = cfg->lookupFloat(scope, "db1.gain");
+			samp_rate = cfg->lookupFloat(scope, "db1.samp_rate");
+			atten = cfg->lookupFloat(scope, "db1.atten");
+			bandwidth = cfg->lookupFloat(scope, "db1.bandwidth");
+			lo_offset = cfg->lookupFloat(scope, "db1.lo_offset");
+			tx_power = cfg->lookupFloat(scope, "db1.tx_power");
+			strcpy(mboard_addr, cfg->lookupString(scope, "db1.mboard_addr"));
+			strcpy(channel_list, cfg->lookupString(scope, "db1.channel_list"));
+			strcpy(band, cfg->lookupString(scope, "db1.band"));
+			strcpy(technology, cfg->lookupString(scope, "db1.technology"));
+			struct command_from_DSP command_db1;
+		    bzero(&command_db1, sizeof(struct command_from_DSP));
+		    command_db1.mode = mode;
+		    command_db1.db_board = db_board;
+		    command_db1.mboard = mboard;
+		    command_db1.change_freq = change_freq;
+		    command_db1.change_gain = change_gain;
+		    command_db1.init_board = false;
+		    command_db1.ntwrkscan = ntwrkscan;
+		    command_db1.getgps = false;
+		    command_db1.freq = freq;
+		    command_db1.gain = gain;
+		    command_db1.samp_rate = samp_rate;
+		    command_db1.atten = atten;
+		    command_db1.bandwidth = bandwidth;
+		    command_db1.lo_offset = lo_offset;
+		    command_db1.tx_power = tx_power;
+		    strcpy(command_db1.mboard_addr, mboard_addr);
+		    strcpy(command_db1.channel_list, channel_list);
+		    strcpy(command_db1.band, band);
+		    strcpy(command_db1.technology, technology);
+		    if(init_board){
+		    	command_db1.getgps = false;
+		    	command_db1.init_board = init_board;
+		    	uint8_t *buffer = (uint8_t*)malloc(sizeof(command_db1));
+		    	bzero(buffer,sizeof(char)*sizeof(command_db1));
+		    	memcpy(buffer, &command_db1, sizeof(command_db1));
+		    	size_t noofBytesRead = write(fd_write, buffer, sizeof(command_db1));
+		    	if(noofBytesRead!=(sizeof(command_db1))){
+		    		char msg[100]={0x00};
+		    		sprintf(msg, "error: read::%s", strerror(errno));
+		    		vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+		    		return 0x01;
+		    	}else{
+		    		char *msg=(char *)malloc(sizeof(char)*sizeof(command_db1)+20);
+		    		bzero(msg,sizeof(char)*sizeof(command_db1));
+		    		sprintf(msg, "info: %d Bytes wrote %s", noofBytesRead,(char *)buffer);
+		    		vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+		    		free(msg);
+		    	}
+		    	sem_wait(&wait);
+		    }
+		    if(getgps){
+		    	command_db1.init_board = false;
+		    	command_db1.getgps = getgps;
+		    	uint8_t *buffer = (uint8_t*)malloc(sizeof(command_db1));
+		    	bzero(buffer,sizeof(char)*sizeof(command_db1));
+		    	memcpy(buffer, &command_db1, sizeof(command_db1));
+		    	size_t noofBytesRead = write(fd_write, buffer, sizeof(command_db1));
+		    	if(noofBytesRead!=(sizeof(command_db1))){
+		    		char msg[100]={0x00};
+		    		sprintf(msg, "error: read::%s", strerror(errno));
+		    		vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+		    		return 0x01;
+		    	}else{
+		    		char *msg=(char *)malloc(sizeof(char)*sizeof(command_db1)+20);
+		    		bzero(msg,sizeof(char)*sizeof(command_db1));
+		    		sprintf(msg, "info: %d Bytes wrote %s", strerror(errno),(char *)buffer);
+		    		vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+		    		free(msg);
+		    	}
+		    	sem_wait(&wait);
+		    	//write command in FIFO
+		    }
+		}
+	} catch(const ConfigurationException &e){
+		char msg[100]={0x00};
+		sprintf(msg,"warning: problem detected while reading config file %s",e.c_str());
+		vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+	}
+	cfg->destroy();
+	sem_wait(&stop_process);
+}
 int32_t main(int argc, char *argv[]){
 	int32_t opt = 0x00;
 	char config_file_path[100] = {0x00};
-	const char *scope = "";
-	const char *default_configFile = "../config/viplrfConfig.cfg";
-	struct command_from_DSP command;
-
 	if(argc<=1){
 		fprintf(stderr,"No parameters found\n");
 		return (EXIT_FAILURE);
 	}
-	//Run-time arguements passing
-
-	while((opt = getopt(argc, argv, "c:e:hv"))!= -1) {
+	//Run-time arguments passing
+	char command[300]={"../config/settings.sh"};
+	while((opt = getopt(argc, argv, "c:e:s:hv"))!= -1) {
 		switch(opt){
 			case 'h': printUsage();
 	            	  exit(EXIT_SUCCESS);
@@ -73,13 +300,24 @@ int32_t main(int argc, char *argv[]){
 	        		  break;
 	        case 'c': strcpy(config_file_path, optarg);
 	        		  break;
+	        case 's': bzero(command,sizeof(char)*300);
+	        		  strcpy(command, optarg);
+	        	      break;
 	        default: exit(EXIT_FAILURE);
 	            	   break;
 	    }
 	}
+	FILE* pipe = popen(command, "r");
+	if(pipe==NULL)
+		vipl_printf("error:unable to find settings", error_lvl, __FILE__, __LINE__);
+	sleep(1);
+	fclose(pipe);
 	//initialize the signal handler
 	signal(SIGINT, intHandler);
-	//initialize sempahore for raising a signal only when a queue is to be pushed and popped.
+	sem_init(&stop_process, 0, 1);
+	sem_init(&wait, 0, 1);
+
+	//initialize semaphore for raising a signal only when a queue is to be pushed and popped.
 	//So that we dont eatup CPU clocks
 
 	sem_init(&lock, 0, 1);
@@ -91,6 +329,7 @@ int32_t main(int argc, char *argv[]){
 
 	//thread for initializing the dequeue process thread..
 	boost::thread t1(initUSRP);
+	boost::thread t2(parse_configfile, config_file_path);
 
 	//FIFO for receiving the control commands from the GUI
 	fifo_read_write control_pipe_init("/tmp/pipe_command_read", "/tmp/pipe_command_write");

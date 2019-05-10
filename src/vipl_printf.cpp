@@ -20,6 +20,7 @@ void vipl_printf(char message[],int error_lvl,char file[],int line)
    struct tm tm = *localtime(&t);
    char timestamp[100]={0x00};
    sprintf(timestamp, "%d-%d-%d:%d:%d:%d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+   fflush(stdout);
    switch(error_lvl)
    {
      case 1: printf("%s [%s:%d] %s\n",timestamp, file,line,message);break;
@@ -28,7 +29,7 @@ void vipl_printf(char message[],int error_lvl,char file[],int line)
              fclose(fp);
              break;
      case 3: fprintf(stderr,"%s [%s:%d] %s\n",timestamp, file,line,message);
-    	 	 fp=fopen("/var/log/vipl_a51Serv.log","a+");
+    	 	 fp=fopen("/var/log/vipl_wifiServ.log","a+");
              fprintf(fp,"%s [%s:%d] %s\n",timestamp, file,line,message);
              fclose(fp);
              break;
