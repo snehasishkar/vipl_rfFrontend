@@ -6,10 +6,6 @@
 CPP_SRCS += \
 ../src/fifo_read_write.cpp \
 ../src/main.cpp \
-../src/mcs_index_rates.cpp \
-../src/packet_capture.cpp \
-../src/uniqueiv.cpp \
-../src/verifyssid.cpp \
 ../src/vipl_printf.cpp \
 ../src/vipl_wifi_demod.cpp \
 ../src/viplrfinterface.cpp 
@@ -17,10 +13,6 @@ CPP_SRCS += \
 OBJS += \
 ./src/fifo_read_write.o \
 ./src/main.o \
-./src/mcs_index_rates.o \
-./src/packet_capture.o \
-./src/uniqueiv.o \
-./src/verifyssid.o \
 ./src/vipl_printf.o \
 ./src/vipl_wifi_demod.o \
 ./src/viplrfinterface.o 
@@ -28,10 +20,6 @@ OBJS += \
 CPP_DEPS += \
 ./src/fifo_read_write.d \
 ./src/main.d \
-./src/mcs_index_rates.d \
-./src/packet_capture.d \
-./src/uniqueiv.d \
-./src/verifyssid.d \
 ./src/vipl_printf.d \
 ./src/vipl_wifi_demod.d \
 ./src/viplrfinterface.d 

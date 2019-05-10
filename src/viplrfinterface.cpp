@@ -16,6 +16,7 @@
 #include "../include/viplrfinterface.h"
 #include "../include/vipl_printf.h"
 #include "../include/vipl_wifi_config.h"
+#include "../include/packet_capture.h"
 
 #define num_mboards 2
 
@@ -366,6 +367,7 @@ void vipl_rf_interface::dequeue(void){
 	int mboard_counter = 0x00;
 	boost::thread t1[2];
 	boost::thread t1_demod[2];
+	boost::thread t2;
 	int8_t count = 0x00, count_demod = 0x00;
 	while(true){
 		if(!command_queue.empty()){
@@ -402,14 +404,11 @@ void vipl_rf_interface::dequeue(void){
 					if(rtnvalue!=0x00)
 						vipl_printf("error: unable for demodulate", error_lvl, __FILE__,__LINE__);
 				}
-				/*pcap_t *fp;
-				char errbuf[PCAP_ERRBUF_SIZE];
-				if(!(fp = pcap_open_offline("/tmp/pipe_command_write", errbuf))){
-				  printf("Error in opening pcap file for reading\n");
-				  exit(0);
-				}
-				pcap_loop(fp, 0, packet_handler, NULL);
-*/
+				//read
+				if(!command.db_board)
+					t2 = boost::thread(parse_packets, &rftap_dbA, command.db_board);
+				else
+					t2 = boost::thread(parse_packets, &rftap_dbB, command.db_board);
 			}
 			if(command.init_board){
 				switch(command.mode){
