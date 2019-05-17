@@ -10,10 +10,10 @@
 #include <thread>
 #include <complex>
 #include <string>
+#include <cmath>
 #include <boost/thread.hpp>
 #include "../include/nmea.h"
 #include "../include/nmea/gpgga.h"
-#include "../include/viplrfinterface.h"
 #include "../include/vipl_printf.h"
 #include "../include/vipl_wifi_config.h"
 #include "../include/packet_capture.h"
@@ -31,6 +31,9 @@ struct vipl_rf_tap rftap_dbA;
 struct vipl_rf_tap rftap_dbB;
 
 struct mboard_list *head, *cont;
+boost::mutex mutex_lock;
+
+bool ready = false;
 
 vipl_rf_interface::vipl_rf_interface(){
 		freq_rx_board_a = 0.00;
@@ -253,16 +256,26 @@ void vipl_rf_interface::start_stream(double freq, int8_t mode, uint8_t channel, 
 	     */
 	usrp->set_rx_subdev_spec(subdev, mboard);
 	uhd::tune_request_t tune_request(freq, lo_offset);
-	tune_request.rf_freq_policy = uhd::tune_request_t::POLICY_MANUAL;
+	//tune_request.rf_freq_policy = uhd::tune_request_t::POLICY_MANUAL ;
 	//std::cout<<freq<<" "<<lo_offset<<std::endl;
 	if(mode==rx){
 		usrp->set_rx_freq(tune_request, channel);
-		if((usrp->get_rx_freq(channel))!=freq){
+		usleep(100);
+#if 0
+		std::cout<<(usrp->get_rx_freq(channel)/1e6)<<" "<<(freq/1e6)<<std::endl;
+		if((int32_t)(usrp->get_rx_freq(channel)/1e6)!=((int32_t)(freq/1e6))){
 			memset(buff, 0x00, sizeof(char)*100);
-			sprintf(buff,"error: unable to set rx frequency %f %f, channel %d", freq, usrp->get_rx_freq(channel), channel);
+			sprintf(buff,"error: unable to set rx frequency %f %f, channel %d", /*freq*/ (freq/1e6), /*usrp->get_rx_freq(channel)*/((usrp->get_rx_freq(channel)/1e6)), channel);
 			goto error;
 		}
-		if(channel){
+#endif
+		{
+			memset(buff, 0x00, sizeof(char)*100);
+			sprintf(buff,"info: rx frequency set to %f against %f, channel %d", /*freq*/ (freq/1e6), /*usrp->get_rx_freq(channel)*/((usrp->get_rx_freq(channel)/1e6)), channel);
+			vipl_printf(buff, error_lvl, __FILE__, __LINE__);
+		}
+
+		if(!channel){
 			rftap_dbA.freq = freq;
 		}else{
 			rftap_dbB.freq = freq;
@@ -273,7 +286,7 @@ void vipl_rf_interface::start_stream(double freq, int8_t mode, uint8_t channel, 
 			sprintf(buff,"error: unable to set gain %u, channel %d", gain, channel);
 			goto error;
 		}
-		if(channel){
+		if(!channel){
 			rftap_dbA.sample_rate= rate;
 		}else{
 			rftap_dbB.sample_rate= rate;
@@ -319,6 +332,8 @@ void vipl_rf_interface::start_stream(double freq, int8_t mode, uint8_t channel, 
 	stream_cmd.time_spec  = uhd::time_spec_t();
 	rx_stream->issue_stream_cmd(stream_cmd);
 	std::vector<std::complex<float>> cb(WIFI_SAMPLE_RATE);//WIFI_SAMPLE_RATE
+	ready = true;
+	//std::cout<<"demod ready1"<<std::endl;
 	while(!stop_rx){
 		size_t num_rx_samps = rx_stream->recv(&cb.front(),WIFI_SAMPLE_RATE, md, 3.0);
 		if(error_lvl==3)
@@ -343,9 +358,9 @@ void vipl_rf_interface::start_stream(double freq, int8_t mode, uint8_t channel, 
 		int32_t rtnval = samples_read_write_init.samplesWrite(&cb.front(),num_rx_samps*sizeof(std::complex<float>));
 		if(rtnval==-1)
 			vipl_printf("error: unable to read from USRP", error_lvl, __FILE__, __LINE__);
-		if(rtnval!=WIFI_SAMPLE_RATE){
+		if(rtnval!=WIFI_SAMPLE_RATE*8){
 			char msg[100]={0x00};
-			sprintf(msg,"warning: Improper write! have wrote %d Bytes should have wrote %d", rtnval, WIFI_SAMPLE_RATE);
+			sprintf(msg,"warning: Improper write! have wrote %d Bytes should have wrote %d", rtnval, WIFI_SAMPLE_RATE*8);
 			vipl_printf(msg, error_lvl, __FILE__, __LINE__);
 		}
 		cb.clear();
@@ -388,27 +403,27 @@ void vipl_rf_interface::dequeue(void){
 				command.samp_rate = WIFI_SAMPLE_RATE;
 				if(strcmp(command.band,"a")==0x00){
 					load_map(command.band);
-					t1_demod[count_demod++] = boost::thread (wifi_demod_band_a, command.db_board, command.channel_list, command.ntwrkscan);
+					t1_demod[count_demod++] = boost::thread (wifi_demod_band_a, command.db_board, command.channel_list, command.ntwrkscan, rx_stream, usrp);
 					if(rtnvalue!=0x00)
 						vipl_printf("error: unable for demodulate", error_lvl, __FILE__,__LINE__);
 				}
 				if(strcmp(command.band,"g")==0x00){
 					load_map(command.band);
-					t1_demod[count_demod++] = boost::thread (wifi_demod_band_g, command.db_board, command.channel_list, command.ntwrkscan);
+					t1_demod[count_demod++] = boost::thread (wifi_demod_band_g, command.db_board, command.channel_list, command.ntwrkscan,  rx_stream, usrp);
 					if(rtnvalue!=0x00)
 						vipl_printf("error: unable for demodulate", error_lvl, __FILE__,__LINE__);
 				}
 				if(strcmp(command.band,"p")==0x00){
 					load_map(command.band);
-					t1_demod[count_demod++] = boost::thread (wifi_demod_band_p, command.db_board, command.channel_list, command.ntwrkscan);
+					t1_demod[count_demod++] = boost::thread (wifi_demod_band_p, command.db_board, command.channel_list, command.ntwrkscan,  rx_stream, usrp);
 					if(rtnvalue!=0x00)
 						vipl_printf("error: unable for demodulate", error_lvl, __FILE__,__LINE__);
 				}
 				//read
 				if(!command.db_board)
-					t2 = boost::thread(parse_packets, &rftap_dbA, command.db_board);
+					t2 = boost::thread(parse_packets, &rftap_dbA, command.db_board, error_lvl);
 				else
-					t2 = boost::thread(parse_packets, &rftap_dbB, command.db_board);
+					t2 = boost::thread(parse_packets, &rftap_dbB, command.db_board, error_lvl);
 			}
 			if(command.init_board){
 				switch(command.mode){
@@ -426,7 +441,7 @@ void vipl_rf_interface::dequeue(void){
 								lo_offset = command.lo_offset*1e6;
 								channel = 0x00;
 								subdev = "A:0";
-								std::cout<<sample_rate;
+								//std::cout<<sample_rate;
 								t1[count++] = boost::thread (&vipl_rf_interface::start_stream, this,freq_rx_board_a, rx, channel, sample_rate);
 								break;
 						case 1: freq_rx_board_a = 0.00;
@@ -479,7 +494,7 @@ void vipl_rf_interface::dequeue(void){
 						gain = command.gain;
 						lo_offset = command.lo_offset*1e6;
 						channel = 0x00;
-						subdev = "A:1";
+						subdev = "A:0";
 						t1[count++] = boost::thread (&vipl_rf_interface::start_stream, this,freq_rx_board_a, rx, channel, sample_rate);
 						break;
 				case 1: freq_rx_board_a = 0.00;
@@ -494,40 +509,11 @@ void vipl_rf_interface::dequeue(void){
 						t1[count++] = boost::thread (&vipl_rf_interface::start_stream, this,freq_rx_board_b, rx, channel, sample_rate);
 						break;
 				}
+				//while(!ready){}
+				//t1[count++] = boost::thread (&vipl_rf_interface::change_freq, this, 0, command.db_board, command.freq);
 						break;
 				}
 
-			}else if(command.change_freq){
-				uhd::stream_cmd_t stream_cmd_stop(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
-				rx_stream->issue_stream_cmd(stream_cmd_stop);
-				switch (command.mode){
-				case rx:switch(command.db_board){
-						case 0: if(set_rx_freq(command.freq*1e6, 0)!=0x00){
-									vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
-								}
-								rftap_dbA.freq = command.freq*1e6;
-							break;
-						case 1:if(set_rx_freq(command.freq*1e6, 1)!=0x00){
-									vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
-								}
-								rftap_dbB.freq = command.freq*1e6;
-							break;
-						}
-						break;
-				case tx:switch(command.db_board){
-						case 0: if(set_rx_freq(command.freq*1e6, 0)!=0x00){
-									vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
-								}
-								break;
-						case 1:	if(set_rx_freq(command.freq*1e6, 1)!=0x00){
-									vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
-							   	}
-							   	break;
-						}
-						break;
-				}
-				uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
-				rx_stream->issue_stream_cmd(stream_cmd);
 			}else if(command.change_gain){
 				switch(command.db_board){
 				case 0: if(set_gain(command.gain, 0)!=0x00){

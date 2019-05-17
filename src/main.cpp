@@ -18,6 +18,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 #include "../include/config4cpp/Configuration.h"
 #include "../include/fifo_read_write.h"
@@ -169,6 +174,7 @@ void parse_configfile(char *config_file_path){
            	if(getgps){
            		command_db0.getgps = getgps;
            		command_db0.init_board = false;
+           		memset(command_db0.technology,0x00, sizeof(char)*6);
            		uint8_t *buffer = (uint8_t*)malloc(sizeof(command_db0));
            		bzero(buffer,sizeof(char)*sizeof(command_db0));
            		memcpy(buffer, &command_db0, sizeof(command_db0));
@@ -251,6 +257,7 @@ void parse_configfile(char *config_file_path){
 		    }
 		    if(getgps){
 		    	command_db1.init_board = false;
+		    	memset(command_db1.technology,0x00, sizeof(char)*6);
 		    	command_db1.getgps = getgps;
 		    	uint8_t *buffer = (uint8_t*)malloc(sizeof(command_db1));
 		    	bzero(buffer,sizeof(char)*sizeof(command_db1));
@@ -278,7 +285,99 @@ void parse_configfile(char *config_file_path){
 		vipl_printf(msg, error_lvl, __FILE__, __LINE__);
 	}
 	cfg->destroy();
-	sem_wait(&stop_process);
+	//sem_wait(&stop_process);
+	int32_t serv_sock;
+	struct sockaddr_in serv_addr, client_addr;
+	if((serv_sock = socket(AF_INET, SOCK_STREAM, 0))<0){
+			vipl_printf("error: socket Creation Failed",error_lvl,__FILE__,__LINE__);
+			exit(EXIT_FAILURE);
+	}
+	bzero((char *)&serv_addr, sizeof(serv_addr));
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_addr.s_addr = INADDR_ANY;
+	serv_addr.sin_port = htons(7370);
+	if(bind(serv_sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
+		vipl_printf("error: bind Failed",error_lvl,__FILE__,__LINE__);
+		exit(EXIT_FAILURE);
+	}
+	socklen_t c=sizeof(client_addr);
+	listen(serv_sock,2);
+	while(true){
+		int32_t client_sock = 0x00;
+		if((client_sock = accept(serv_sock, (struct sockaddr *)&client_addr,&c))<=0){
+			vipl_printf("error: error in socket accept",error_lvl,__FILE__,__LINE__);
+			continue;
+	    }
+		size_t size_recv = 0x00;
+		char buffer[200]={0x00};
+		char command[50] = {0x00};
+		if(((size_recv = recv(client_sock,(uint8_t *)buffer,sizeof(char)*100,0))>0)){
+			char *token = strtok(buffer,":");
+			double val;
+			int8_t db_board = 0x00;
+			strcpy(command, token);
+			int32_t count = 0;
+			while(token!=NULL){
+				token = strtok(NULL, ":");
+				if(!count){
+					val = atof(token);
+					count++;
+				}else{
+					db_board = atof(token);
+				}
+			}
+			struct command_from_DSP command_db0, command_db1;
+			bzero(&command_db0, sizeof(struct command_from_DSP));
+			bzero(&command_db1, sizeof(struct command_from_DSP));
+			if(strcmp(command,"gain")==0x00){
+				if(!db_board){
+					command_db0.change_gain = true;
+					command_db0.gain = val;
+					size_t noofBytesRead = write(fd_write, buffer, sizeof(command_db0));
+					if(noofBytesRead!=(sizeof(command_db0))){
+						char msg[100]={0x00};
+						sprintf(msg, "error: read::%s", strerror(errno));
+						vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+						return 0x01;
+					}else{
+						char *msg=(char *)malloc(sizeof(char)*sizeof(command_db0)+20);
+						bzero(msg,sizeof(char)*sizeof(command_db0));
+						sprintf(msg, "info: %d Bytes wrote %s", noofBytesRead,(char *)buffer);
+						vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+						free(msg);
+					}
+				}else{
+					command_db1.change_gain = true;
+					command_db1.gain = val;
+					size_t noofBytesRead = write(fd_write, buffer, sizeof(command_db1));
+					if(noofBytesRead!=(sizeof(command_db1))){
+						char msg[100]={0x00};
+						sprintf(msg, "error: read::%s", strerror(errno));
+						vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+						return 0x01;
+					}else{
+						char *msg=(char *)malloc(sizeof(char)*sizeof(command_db1)+20);
+						bzero(msg,sizeof(char)*sizeof(command_db1));
+						sprintf(msg, "info: %d Bytes wrote %s", noofBytesRead,(char *)buffer);
+						vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+						free(msg);
+					}
+				}
+			}
+#if 0
+			else if(strcmp(command,"atten")==0x00){
+				if(!db_board){
+					 command_db0.change_gain = true;
+					 command_db0.gain = val;
+				}else{
+					  command_db1.change_gain = true;
+					  command_db1.gain = val;
+				}
+			}
+#endif
+
+		}
+	 }
 }
 int32_t main(int argc, char *argv[]){
 	int32_t opt = 0x00;

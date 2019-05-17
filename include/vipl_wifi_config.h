@@ -10,6 +10,7 @@
 
 #include <inttypes.h>
 #include <semaphore.h>
+#include "../include/viplrfinterface.h"
 
 #define DELAY_VAR_A 16
 #define DELAY_VAR_B 320
@@ -20,18 +21,18 @@
 #define enable_log false
 #define enable_debug false
 #define FFT_SIZE 64
-#define WIFI_SAMPLE_RATE 20000000
+#define WIFI_SAMPLE_RATE 20000000//20000000
 #define WIFI_BUFFER_TIME_IN_SECS 15
 #define TOTAL_BUFFER_SIZE WIFI_SAMPLE_RATE*WIFI_BUFFER_TIME_IN_SECS
-#define WAIT_TIME 250000000
+#define WAIT_TIME 1000000
 #define LO_OFFSET_1 6000000
 #define LO_OFFSET_2 11000000
 
 void load_map(char *band);
 double find_freq(int ch, char band);
-void wifi_demod_band_a(int8_t usrp_channel, char *channel_list, bool ntwrkscan);
-void wifi_demod_band_g(int8_t usrp_channel, char *channel_list, bool ntwrkscan);
-void wifi_demod_band_p(int8_t usrp_channel, char *channel_list, bool ntwrkscan);
+void wifi_demod_band_a(int8_t usrp_channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp);
+void wifi_demod_band_g(int8_t usrp_channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp);
+void wifi_demod_band_p(int8_t usrp_channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp);
 
 extern sem_t stop_process;
 

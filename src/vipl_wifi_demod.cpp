@@ -28,6 +28,7 @@
 #include <gnuradio/blocks/complex_to_mag_squared.h>
 #include <gnuradio/blocks/stream_to_vector.h>
 #include <gnuradio/blocks/file_sink.h>
+#include <gnuradio/blocks/null_sink.h>
 #include <pmt/pmt.h>
 
 #include <ieee802-11/moving_average_ff.h>
@@ -43,11 +44,14 @@
 #include "../include/vipl_wifi_config.h"
 #include "../include/vipl_printf.h"
 #include "../include/fifo_read_write.h"
+#include "../include/viplrfinterface.h"
 
 #include <boost/thread.hpp>
 
 using namespace gr;
 using namespace ieee802_11;
+
+double change_freq_val = 0x00;
 
 map<int32_t, double> g, a, p;
 
@@ -123,6 +127,9 @@ void load_map_band_a(){
 	a[159] = 5795000000.0;
 	a[161] = 5805000000.0;
 	a[165] = 5825000000.0;
+	a[169] = 5845000000.0;
+	a[173] = 5865000000.0;
+	//a[0] =
 }
 
 void load_map_band_p(){
@@ -160,19 +167,68 @@ double find_freq(int ch, char band){
 	return -1;
 }
 
-void change_freq(int8_t usrp_channel, int32_t *channel_list, char band, int32_t no_of_channel, ieee802_11::frame_equalizer::sptr frame_equalizer_blk, fifo_read_write fifo_command){
+int8_t set_rx_freq_val(double freq, int8_t channel, uhd::usrp::multi_usrp::sptr usrp){
+	char buff[200]={0x00};
+	double lo_offset = 0x00;
+	uhd::tune_request_t tune_request(freq, lo_offset);
+	usrp->set_rx_freq(tune_request, channel);
+	if(usrp->get_rx_freq(channel)!=freq){
+		memset(buff, 0x00, sizeof(char)*100);
+		sprintf(buff,"error: unable to set rx frequency %f, channel %d", freq, channel);
+		goto error;
+	}
+	return 0x00;
+	error:
+	vipl_printf(buff, error_lvl, __FILE__, __LINE__);
+	return 0x01;
+}
+
+void change_freq_usrp(uint8_t db_board, double freq, uhd::rx_streamer::sptr rx_stream, uint8_t mode, uhd::usrp::multi_usrp::sptr usrp ){
+	freq = change_freq_val;
+	/*uhd::stream_cmd_t stream_cmd_stop(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
+	rx_stream->issue_stream_cmd(stream_cmd_stop);*/
+	//std::cout<<change_freq_val<<std::endl;
+	switch (mode){
+	case rx:switch(db_board){
+			case 0: if(set_rx_freq_val(freq, 0, usrp)!=0x00){
+						vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
+					}
+					rftap_dbA.freq = freq;
+					//std::cout<<"rf:freq changed to "<<rftap_dbA.freq/1e6<<std::endl;
+				break;
+			case 1:if(set_rx_freq_val(freq, 1, usrp)!=0x00){
+						vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
+					}
+					rftap_dbB.freq = freq;
+				break;
+			}
+			break;
+	case tx:switch(db_board){
+			case 0: if(set_rx_freq_val(freq, 0, usrp)!=0x00){
+						vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
+					}
+					break;
+			case 1:	if(set_rx_freq_val(freq, 1, usrp)!=0x00){
+						vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
+				   	}
+				   	break;
+			}
+			break;
+	}
+	/*uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+	rx_stream->issue_stream_cmd(stream_cmd);*/
+}
+
+void change_freq(int8_t usrp_channel, int32_t *channel_list, char band, int32_t no_of_channel, ieee802_11::frame_equalizer::sptr frame_equalizer_blk, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp){
 	reload:
 	for(int32_t i = 0x00; i<no_of_channel;i++){
 		usleep(WAIT_TIME);
-		double freq = find_freq(channel_list[i++], band);
+		double freq = find_freq(channel_list[i], band);
 		frame_equalizer_blk->set_frequency(freq);
-		struct command_from_DSP command;
-		memset(&command, 0x00, sizeof(command));
-		command.change_freq = true;
-		command.freq = freq;
-		int8_t rtnval = fifo_command.fifo_write(command);
-		if(rtnval)
-			vipl_printf("error: Freq could not be changed! unable to write to FIFO", error_lvl, __FILE__, __LINE__);
+		change_freq_val = freq;
+		//std::cout<<"index: "<<i<<std::endl;
+		std::cout<<"freq changed to"<<change_freq_val<<std::endl;
+		change_freq_usrp(usrp_channel, freq, rx_stream, 0, usrp);
 	}
 	goto reload;
 }
@@ -187,7 +243,7 @@ int8_t create_fifo(char *fifo_name){
 	return 0x00;
 }
 
-void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
+void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp){
 	vipl_printf("info: Demodualtion for Band A started",error_lvl, __FILE__, __LINE__);
 	char fifo_name[30]={0x00};
 	sprintf(fifo_name,"/tmp/samples_write_%d", channel);
@@ -198,13 +254,14 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 		vipl_printf("error: unable to open FIFO for reading samples...exiting!!", error_lvl, __FILE__, __LINE__);
 		goto label;
 	}
+#if 0
 	bzero(fifo_name, sizeof(char)*30);
 	sprintf(fifo_name,"/tmp/samples_read_%d", channel);
 	if(create_fifo(fifo_name)!=0x00)
 		vipl_printf("error: unable to create FIFO", error_lvl, __FILE__, __LINE__);
 	int32_t fd_sink;
-#if 1
-	fd_sink = open(fifo_name,O_RDONLY);
+
+	fd_sink = open(fifo_name,O_WRONLY);
 	if(fd_sink<=0x00){
 		vipl_printf("error: unable to open FIFO for reading writing...exiting!!", error_lvl, __FILE__, __LINE__);
 
@@ -212,8 +269,9 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 #endif
 	enum Equalizer channel_estimation_algo = LS;
 	blocks::file_descriptor_source::sptr fd_source =  blocks::file_descriptor_source::make(sizeof(std::complex<float>)*1,fd_src, false);
-	blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
+	//blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
 	//blocks::file_sink::sptr filesink = blocks::file_sink::make(sizeof(uint8_t)*1,"/home/decryptor/test1.pcap",true);
+	blocks::null_sink::sptr null_sinks = blocks::null_sink::make(sizeof(uint8_t)*1);
 	blocks::delay::sptr delay_a = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_A);
 	blocks::delay::sptr delay_b = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_B);
 	blocks::complex_to_mag_squared::sptr complex2mag_a = blocks::complex_to_mag_squared::make(VECTOR_SIZE);
@@ -239,8 +297,9 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 		char write_path[100]={0x00};
 		sprintf(read_path,"/tmp/command_read_db_%d",channel);
 		sprintf(write_path,"/tmp/command_write_db_%d",channel);
-		fifo_read_write fifo_command(read_path, write_path);
-		boost::thread t1(change_freq, channel, channel_list_band_a, 'a', 48, frame_equalizer_blk, fifo_command);
+		while(!ready){}
+		//std::cout<<"demod ready"<<std::endl;
+		boost::thread t1(change_freq, channel, channel_list_band_a, 'a', 48, frame_equalizer_blk, rx_stream, usrp);
 	}else{
 #if 1
 		if(channel_list[0]>'1'){
@@ -257,8 +316,8 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 			//char write_path[100]={0x00};
 			sprintf(read_path,"/tmp/command_read_db_%d",channel);
 			//sprintf(write_path,"/tmp/command_write_db_%d",channel);
-			fifo_read_write fifo_command(read_path, read_path);
-			boost::thread t1(change_freq, channel, chann_list, 'a', i-1, frame_equalizer_blk, fifo_command);
+			while(!ready){}
+			boost::thread t1(change_freq, channel, chann_list, 'a', i-1, frame_equalizer_blk, rx_stream, usrp);
 		}else{
 			int32_t channel = atoi(channel_list+1);
 			double freq = find_freq(channel, 'a');
@@ -295,13 +354,16 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan){
 	tb->msg_connect(decode_mac, "out", parse_mac, "in");
 #endif
 	tb->msg_connect(decode_mac, "out", wireshark, "in");
-	tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
+	//tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
+	tb->connect(wireshark, 0x00, null_sinks, 0x00);
 	//tb->connect(wireshark,0, filesink,0);
 	tb->start();
+	tb->wait();
 	sem_wait(&stop_process);
+	//std::cout<<"test"<<std::endl;
 }
 
-void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan){
+void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp){
 	vipl_printf("info: Demodualtion for Band G started",error_lvl, __FILE__, __LINE__);
 	char fifo_name[30]={0x00};
 	sprintf(fifo_name,"/tmp/samples_write_%d", channel);
@@ -312,13 +374,13 @@ void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan){
 		vipl_printf("error: unable to open FIFO for reading samples...exiting!!", error_lvl, __FILE__, __LINE__);
 		goto label;
 	}
+#if 0
 	bzero(fifo_name, sizeof(char)*30);
 	sprintf(fifo_name,"/tmp/samples_read_%d", channel);
 	if(create_fifo(fifo_name)!=0x00)
 		vipl_printf("error: unable to create FIFO", error_lvl, __FILE__, __LINE__);
 	int32_t fd_sink;
-#if 1
-	fd_sink = open(fifo_name,O_RDONLY);
+	fd_sink = open(fifo_name,O_WRONLY);
 	if(fd_sink<=0x00){
 		vipl_printf("error: unable to open FIFO for reading writing...exiting!!", error_lvl, __FILE__, __LINE__);
 
@@ -326,8 +388,9 @@ void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan){
 #endif
 	enum Equalizer channel_estimation_algo = LS;
 	blocks::file_descriptor_source::sptr fd_source =  blocks::file_descriptor_source::make(sizeof(std::complex<float>)*1,fd_src, false);
-	blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
+	//blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
 	//blocks::file_sink::sptr filesink = blocks::file_sink::make(sizeof(uint8_t)*1,"/home/decryptor/test1.pcap",true);
+	blocks::null_sink::sptr null_sinks = blocks::null_sink::make(sizeof(uint8_t)*1);
 	blocks::delay::sptr delay_a = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_A);
 	blocks::delay::sptr delay_b = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_B);
 	blocks::complex_to_mag_squared::sptr complex2mag_a = blocks::complex_to_mag_squared::make(VECTOR_SIZE);
@@ -353,8 +416,8 @@ void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan){
 		char write_path[100]={0x00};
 		sprintf(read_path,"/tmp/command_read_db_%d",channel);
 		sprintf(write_path,"/tmp/command_write_db_%d",channel);
-		fifo_read_write fifo_command(read_path, write_path);
-		boost::thread t1(change_freq, channel, channel_list_band_bg, 'g', 15, frame_equalizer_blk, fifo_command);
+		while(!ready){}
+		boost::thread t1(change_freq, channel, channel_list_band_bg, 'g', 15, frame_equalizer_blk, rx_stream, usrp);
 	}else{
 #if 1
 		if(channel_list[0]>'1'){
@@ -371,8 +434,8 @@ void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan){
 			//char write_path[100]={0x00};
 			sprintf(read_path,"/tmp/command_read_db_%d",channel);
 			//sprintf(write_path,"/tmp/command_write_db_%d",channel);
-			fifo_read_write fifo_command(read_path, read_path);
-			boost::thread t1(change_freq, channel, chann_list, 'g', i-1, frame_equalizer_blk, fifo_command);
+			while(!ready){}
+			boost::thread t1(change_freq, channel, chann_list, 'g', i-1, frame_equalizer_blk, rx_stream, usrp);
 		}else{
 			int32_t channel = atoi(channel_list+1);
 			double freq = find_freq(channel, 'g');
@@ -409,13 +472,15 @@ void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan){
 	tb->msg_connect(decode_mac, "out", parse_mac, "in");
 #endif
 	tb->msg_connect(decode_mac, "out", wireshark, "in");
-	tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
+	//tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
 	//tb->connect(wireshark,0, filesink,0);
+	tb->connect(wireshark, 0x00, null_sinks, 0x00);
 	tb->start();
+	tb->wait();
 	sem_wait(&stop_process);
 }
 
-void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan){
+void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp){
 	vipl_printf("info: Demodualtion for Band P started",error_lvl, __FILE__, __LINE__);
 	char fifo_name[30]={0x00};
 	sprintf(fifo_name,"/tmp/samples_write_%d", channel);
@@ -426,13 +491,14 @@ void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan){
 		vipl_printf("error: unable to open FIFO for reading samples...exiting!!", error_lvl, __FILE__, __LINE__);
 		goto label;
 	}
+#if 0
 	bzero(fifo_name, sizeof(char)*30);
 	sprintf(fifo_name,"/tmp/samples_read_%d", channel);
 	if(create_fifo(fifo_name)!=0x00)
 		vipl_printf("error: unable to create FIFO", error_lvl, __FILE__, __LINE__);
 	int32_t fd_sink;
-#if 1
-	fd_sink = open(fifo_name,O_RDONLY);
+
+	fd_sink = open(fifo_name,O_WRONLY);
 	if(fd_sink<=0x00){
 		vipl_printf("error: unable to open FIFO for reading writing...exiting!!", error_lvl, __FILE__, __LINE__);
 
@@ -440,8 +506,9 @@ void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan){
 #endif
 	enum Equalizer channel_estimation_algo = LS;
 	blocks::file_descriptor_source::sptr fd_source =  blocks::file_descriptor_source::make(sizeof(std::complex<float>)*1,fd_src, false);
-	blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
+	//blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
 	//blocks::file_sink::sptr filesink = blocks::file_sink::make(sizeof(uint8_t)*1,"/home/decryptor/test1.pcap",true);
+	blocks::null_sink::sptr null_sinks = blocks::null_sink::make(sizeof(uint8_t)*1);
 	blocks::delay::sptr delay_a = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_A);
 	blocks::delay::sptr delay_b = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_B);
 	blocks::complex_to_mag_squared::sptr complex2mag_a = blocks::complex_to_mag_squared::make(VECTOR_SIZE);
@@ -467,8 +534,9 @@ void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan){
 		char write_path[100]={0x00};
 		sprintf(read_path,"/tmp/command_read_db_%d",channel);
 		sprintf(write_path,"/tmp/command_write_db_%d",channel);
-		fifo_read_write fifo_command(read_path, write_path);
-		boost::thread t1(change_freq, channel, channel_list_band_p, 'p', 7, frame_equalizer_blk, fifo_command);
+		//fifo_read_write fifo_command(read_path, write_path);
+		while(!ready){}
+		boost::thread t1(change_freq, channel, channel_list_band_p, 'p', 7, frame_equalizer_blk, rx_stream, usrp);
 	}else{
 #if 1
 		if(channel_list[0]>'1'){
@@ -485,8 +553,9 @@ void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan){
 			//char write_path[100]={0x00};
 			sprintf(read_path,"/tmp/command_read_db_%d",channel);
 			//sprintf(write_path,"/tmp/command_write_db_%d",channel);
-			fifo_read_write fifo_command(read_path, read_path);
-			boost::thread t1(change_freq, channel, chann_list, 'p', i-1, frame_equalizer_blk, fifo_command);
+			//fifo_read_write fifo_command(read_path, read_path);
+			while(!ready){}
+			boost::thread t1(change_freq, channel, chann_list, 'p', i-1, frame_equalizer_blk, rx_stream, usrp);
 		}else{
 			int32_t channel = atoi(channel_list+1);
 			double freq = find_freq(channel, 'p');
@@ -523,9 +592,11 @@ void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan){
 	tb->msg_connect(decode_mac, "out", parse_mac, "in");
 #endif
 	tb->msg_connect(decode_mac, "out", wireshark, "in");
-	tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
+	//tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
 	//tb->connect(wireshark,0, filesink,0);
+	tb->connect(wireshark, 0x00, null_sinks, 0x00);
 	tb->start();
+	tb->wait();
 	sem_wait(&stop_process);
 }
 
