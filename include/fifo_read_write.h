@@ -44,8 +44,10 @@ struct command_from_DSP{
 	double tx_power;
 	char mboard_addr[34];
 	char channel_list[14];
-	char band[2];
+	char band[3];
 	char technology[6];
+	int32_t num_channels;
+	char interface[50];
 };
 
 using namespace std;

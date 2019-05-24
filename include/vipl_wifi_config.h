@@ -21,20 +21,54 @@
 #define enable_log false
 #define enable_debug false
 #define FFT_SIZE 64
-#define WIFI_SAMPLE_RATE 20000000//20000000
+#define WIFI_SAMPLE_RATE_A 20000000
+#define WIFI_SAMPLE_RATE_G 20000000
+#define WIFI_SAMPLE_RATE_P 10000000
 #define WIFI_BUFFER_TIME_IN_SECS 15
-#define TOTAL_BUFFER_SIZE WIFI_SAMPLE_RATE*WIFI_BUFFER_TIME_IN_SECS
+#define TOTAL_BUFFER_SIZE WIFI_SAMPLE_RATE_A*WIFI_BUFFER_TIME_IN_SECS
 #define WAIT_TIME 1000000
 #define LO_OFFSET_1 6000000
 #define LO_OFFSET_2 11000000
+#define channel_length_A 47
+#define channel_length_G 15
+#define channel_length_P 7
 
 void load_map(char *band);
 double find_freq(int ch, char band);
-void wifi_demod_band_a(int8_t usrp_channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp);
-void wifi_demod_band_g(int8_t usrp_channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp);
-void wifi_demod_band_p(int8_t usrp_channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp);
+void wifi_demod_band_a(int8_t usrp_channel);
+void wifi_demod_band_g(int8_t usrp_channel);
+void wifi_demod_band_p(int8_t usrp_channel);
+void wifi_demod_band_b(struct command_from_DSP command);
+
+extern int32_t channel_list_band_p[];
+extern int32_t channel_list_band_bg[];
+extern int32_t channel_list_band_a[];
+
+void load_map_band_a();
+void load_map_band_g();
+void load_map_band_p();
+double find_freq(int32_t ch, char *band);
+int8_t shift_freq(double freq, int8_t channel);
 
 extern sem_t stop_process;
 
+struct wifiConfig{
+	int8_t mode;
+	uint8_t channel;
+	int32_t channel_list_command[50];
+	int32_t num_channel;
+	double rate;
+	double spb;
+	double freq;
+	bool is_hopping;
+	char band[4];
+	char technology[50];
+	struct command_from_DSP *command;
+};
+
+
+extern int32_t channel_list_band_p[channel_length_P];
+extern int32_t channel_list_band_bg[channel_length_G];
+extern int32_t channel_list_band_a[channel_length_A];
 
 #endif /* INCLUDE_VIPL_WIFI_CONFIG_H_ */

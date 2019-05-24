@@ -102,13 +102,15 @@ void parse_configfile(char *config_file_path){
 		cfg->parse(default_configFile);
 		cfg->listFullyScopedNames(m_scope.c_str(), "", Configuration::CFG_SCOPE, false, filter.c_str(), scopes);
 		int len = scopes.length();
+		char interface[50] = {0x00};
+		strcpy(interface, cfg->lookupString("", "interface.name"));
 		for(int i=0; i<len; i++){
 			char *scope = new char(20);
 			strcpy(scope, scopes[i]);
-			int mode, db_board, mboard;
+			int32_t mode, db_board, mboard, num_channel;
 			bool change_freq, change_gain, init_board, ntwrkscan, getgps;
 			float freq, gain, samp_rate, atten, bandwidth, lo_offset, tx_power;
-			char mboard_addr[34], channel_list[14], band[2], technology[6];
+			char mboard_addr[34], channel_list[14], band[3], technology[6];
 			mode = cfg->lookupInt(scope, "db0.mode");
 			db_board = cfg->lookupInt(scope, "db0.db_board");
 		    mboard = cfg->lookupInt(scope, "db0.mboard");
@@ -128,6 +130,7 @@ void parse_configfile(char *config_file_path){
 			strcpy(channel_list, cfg->lookupString(scope, "db0.channel_list"));
 			strcpy(band, cfg->lookupString(scope, "db0.band"));
 			strcpy(technology, cfg->lookupString(scope, "db0.technology"));
+			num_channel = cfg->lookupInt(scope, "db0.num_channel");
             struct command_from_DSP command_db0;
             bzero(&command_db0, sizeof(struct command_from_DSP));
             command_db0.mode = mode;
@@ -145,13 +148,17 @@ void parse_configfile(char *config_file_path){
             command_db0.bandwidth = bandwidth;
             command_db0.lo_offset = lo_offset;
             command_db0.tx_power = tx_power;
+            command_db0.num_channels = num_channel;
             strcpy(command_db0.mboard_addr, mboard_addr);
             strcpy(command_db0.channel_list, channel_list);
             strcpy(command_db0.band, band);
             strcpy(command_db0.technology, technology);
-            if(init_board){
+            strcpy(command_db0.interface, interface);
+            if(init_board||ntwrkscan){
            		command_db0.getgps = false;
+           		command_db0.ntwrkscan = ntwrkscan;
            		command_db0.init_board = init_board;
+           		//std::cout<<command_db0.ntwrkscan<<std::endl;
            		uint8_t *buffer = (uint8_t*)malloc(sizeof(command_db0));
            		bzero(buffer,sizeof(char)*sizeof(command_db0));
            		memcpy(buffer, &command_db0, sizeof(command_db0));
@@ -213,6 +220,7 @@ void parse_configfile(char *config_file_path){
 			strcpy(channel_list, cfg->lookupString(scope, "db1.channel_list"));
 			strcpy(band, cfg->lookupString(scope, "db1.band"));
 			strcpy(technology, cfg->lookupString(scope, "db1.technology"));
+			num_channel = cfg->lookupInt(scope, "db0.num_channel");
 			struct command_from_DSP command_db1;
 		    bzero(&command_db1, sizeof(struct command_from_DSP));
 		    command_db1.mode = mode;
@@ -230,12 +238,15 @@ void parse_configfile(char *config_file_path){
 		    command_db1.bandwidth = bandwidth;
 		    command_db1.lo_offset = lo_offset;
 		    command_db1.tx_power = tx_power;
+		    command_db1.num_channels = num_channel;
 		    strcpy(command_db1.mboard_addr, mboard_addr);
 		    strcpy(command_db1.channel_list, channel_list);
 		    strcpy(command_db1.band, band);
 		    strcpy(command_db1.technology, technology);
-		    if(init_board){
+		    strcpy(command_db1.interface, interface);
+		    if(init_board || ntwrkscan){
 		    	command_db1.getgps = false;
+		    	command_db1.ntwrkscan = ntwrkscan;
 		    	command_db1.init_board = init_board;
 		    	uint8_t *buffer = (uint8_t*)malloc(sizeof(command_db1));
 		    	bzero(buffer,sizeof(char)*sizeof(command_db1));

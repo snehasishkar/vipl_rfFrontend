@@ -22,6 +22,7 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
 #include <boost/thread.hpp>
+#include <pcap.h>
 
 #include "fifo_read_write.h"
 
@@ -32,6 +33,7 @@
 extern char IP_ADDR[50];
 extern bool stop_rx;
 extern bool stop_gps;
+
 
 struct vipl_rf_tap{
 	uint8_t channel;
@@ -58,7 +60,6 @@ class vipl_rf_interface {
 	std::string subdev;
 	int32_t mboard;
 	uhd::usrp::multi_usrp::sptr usrp;
-	uhd::rx_streamer::sptr rx_stream;
 public:
 	vipl_rf_interface();
 	virtual ~vipl_rf_interface();
@@ -66,7 +67,7 @@ public:
 	int8_t set_tx_freq(double freq, int8_t channel);
 	int8_t set_gain(double gain, int8_t channel);
 	//void change_freq(uint8_t mode, uint8_t db_board, double freq);
-	void start_stream(double freq, int8_t mode, uint8_t channel, double rate);
+	void start_stream (struct wifiConfig config);
 	void get_gps_val(void);
 	bool lock_gps(void);
 	void dequeue(void);

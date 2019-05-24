@@ -40,6 +40,11 @@
 #include <ieee802-11/parse_mac.h>
 
 #include <foo/wireshark_connector.h>
+#include <net/if.h>
+#include <netlink/netlink.h>
+#include <netlink/genl/genl.h>
+#include <netlink/genl/ctrl.h>
+#include <linux/nl80211.h>
 
 #include "../include/vipl_wifi_config.h"
 #include "../include/vipl_printf.h"
@@ -47,21 +52,38 @@
 #include "../include/viplrfinterface.h"
 
 #include <boost/thread.hpp>
+#include <signal.h>
+#include <pcap.h>
+#include <pwd.h>
+#include <net/if.h>
+#include <netlink/netlink.h>
+#include <netlink/genl/genl.h>
+#include <netlink/genl/ctrl.h>
+#include <linux/nl80211.h>
 
 using namespace gr;
 using namespace ieee802_11;
 
 double change_freq_val = 0x00;
-
-map<int32_t, double> g, a, p;
+char *dev = NULL;
+pcap_t *descr=NULL;
+pcap_dumper_t *dumpfile=NULL;
+clock_t start=0;
+const char *homedir=NULL;
+struct timespec start_time={0,0}, end_time={0,0};
+struct timespec channel_start_time={0,0}, channel_end_time={0,0};
+char pcap_filename[200], dir_name[200];
+int32_t channel_list_command[50]={0x00};
+int32_t num_channels=0, k=0;
+map<int32_t, double> g, a, p, b;
 
 
 int32_t channel_list_band_p[]= {172, 174, 176, 178, 180, 182, 184};
 int32_t channel_list_band_bg[] = {1, 7, 13, 2, 8, 3, 14, 9, 4, 10, 5, 11, 6, 12, 0};
-int channel_list_band_a[] = {36,  38,  40,  42,  44,  46,  48,  50,  52,  54,  56,  58,  \
+int32_t channel_list_band_a[] = {36,  38,  40,  42,  44,  46,  48,  50,  52,  54,  56,  58,  \
 							 60,  62,  64,  100, 102, 104, 106, 108, 110, 112, 114, 116, \
 							 118, 120, 122, 124, 126, 128, 132, 134, 136, 138, 140, 142, \
-							 144, 149, 151, 153, 155, 157, 159, 161, 165, 169, 173, 0};	\
+							 144, 149, 151, 153, 155, 157, 159, 161, 165, 169, 173};	\
 
 void load_map_band_g(){
 	g[1] = 2412000000.0;
@@ -142,6 +164,25 @@ void load_map_band_p(){
 	p[184] = 5920000000.0;
 }
 
+void load_map_band_b(){
+	b[1] = 2412000000.0;
+	b[2] = 2417000000.0;
+	b[3] = 2422000000.0;
+	b[4] = 2427000000.0;
+	b[5] = 2432000000.0;
+	b[6] = 2437000000.0;
+	b[7] = 2442000000.0;
+	b[8] = 2447000000.0;
+	b[9] = 2452000000.0;
+	b[10] = 2457000000.0;
+	b[11] = 2462000000.0;
+	b[12] = 2467000000.0;
+	b[13] = 2472000000.0;
+	b[14] = 2484000000.0;
+}
+ieee802_11::frame_equalizer::sptr frame_equalizer_blk_0;
+ieee802_11::frame_equalizer::sptr frame_equalizer_blk_1;
+
 void load_map(char *band){
 	if(strcmp(band,"g")==0x00)
 		load_map_band_g();
@@ -149,6 +190,8 @@ void load_map(char *band){
 		load_map_band_a();
 	else if(strcmp(band,"p")==0x00)
 		load_map_band_p();
+	else if(strcmp(band,"b")==0x00)
+		load_map_band_b();
 #if 0
 	else if(strcmp(band,"ac")==0x00)
 		load_map_band_p();
@@ -157,81 +200,28 @@ void load_map(char *band){
 #endif
 }
 
-double find_freq(int ch, char band){
-	if(band=='g')
+double find_freq(int32_t ch, char *band){
+	if(strcmp(band, "g")==0x00)
 		return g[ch];
-	else if(band=='a')
+	else if(strcmp(band, "a")==0x00)
 		return a[ch];
-	else if(band=='p')
+	else if(strcmp(band, "p")==0x00)
 		return p[ch];
+	else if(strcmp(band, "b")==0x00){
+		return b[ch];
+	}
 	return -1;
 }
 
-int8_t set_rx_freq_val(double freq, int8_t channel, uhd::usrp::multi_usrp::sptr usrp){
-	char buff[200]={0x00};
-	double lo_offset = 0x00;
-	uhd::tune_request_t tune_request(freq, lo_offset);
-	usrp->set_rx_freq(tune_request, channel);
-	if(usrp->get_rx_freq(channel)!=freq){
-		memset(buff, 0x00, sizeof(char)*100);
-		sprintf(buff,"error: unable to set rx frequency %f, channel %d", freq, channel);
-		goto error;
-	}
+int8_t shift_freq(double freq, int8_t channel){
+	//std::cout<<"channel "<<channel<<std::endl;
+	if(!channel)
+		frame_equalizer_blk_0->set_frequency(freq);
+	else
+		frame_equalizer_blk_1->set_frequency(freq);
 	return 0x00;
-	error:
-	vipl_printf(buff, error_lvl, __FILE__, __LINE__);
-	return 0x01;
 }
 
-void change_freq_usrp(uint8_t db_board, double freq, uhd::rx_streamer::sptr rx_stream, uint8_t mode, uhd::usrp::multi_usrp::sptr usrp ){
-	freq = change_freq_val;
-	/*uhd::stream_cmd_t stream_cmd_stop(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
-	rx_stream->issue_stream_cmd(stream_cmd_stop);*/
-	//std::cout<<change_freq_val<<std::endl;
-	switch (mode){
-	case rx:switch(db_board){
-			case 0: if(set_rx_freq_val(freq, 0, usrp)!=0x00){
-						vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
-					}
-					rftap_dbA.freq = freq;
-					//std::cout<<"rf:freq changed to "<<rftap_dbA.freq/1e6<<std::endl;
-				break;
-			case 1:if(set_rx_freq_val(freq, 1, usrp)!=0x00){
-						vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
-					}
-					rftap_dbB.freq = freq;
-				break;
-			}
-			break;
-	case tx:switch(db_board){
-			case 0: if(set_rx_freq_val(freq, 0, usrp)!=0x00){
-						vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
-					}
-					break;
-			case 1:	if(set_rx_freq_val(freq, 1, usrp)!=0x00){
-						vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
-				   	}
-				   	break;
-			}
-			break;
-	}
-	/*uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
-	rx_stream->issue_stream_cmd(stream_cmd);*/
-}
-
-void change_freq(int8_t usrp_channel, int32_t *channel_list, char band, int32_t no_of_channel, ieee802_11::frame_equalizer::sptr frame_equalizer_blk, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp){
-	reload:
-	for(int32_t i = 0x00; i<no_of_channel;i++){
-		usleep(WAIT_TIME);
-		double freq = find_freq(channel_list[i], band);
-		frame_equalizer_blk->set_frequency(freq);
-		change_freq_val = freq;
-		//std::cout<<"index: "<<i<<std::endl;
-		std::cout<<"freq changed to"<<change_freq_val<<std::endl;
-		change_freq_usrp(usrp_channel, freq, rx_stream, 0, usrp);
-	}
-	goto reload;
-}
 
 int8_t create_fifo(char *fifo_name){
 	if(mkfifo(fifo_name,666)!=0x00){
@@ -243,7 +233,7 @@ int8_t create_fifo(char *fifo_name){
 	return 0x00;
 }
 
-void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp){
+void wifi_demod_band_a(int8_t channel){
 	vipl_printf("info: Demodualtion for Band A started",error_lvl, __FILE__, __LINE__);
 	char fifo_name[30]={0x00};
 	sprintf(fifo_name,"/tmp/samples_write_%d", channel);
@@ -283,7 +273,10 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	ieee802_11::moving_average_ff::sptr moving_average_float = ieee802_11::moving_average_ff::make(MOVING_AVERAGE_LENGTH);
 	ieee802_11::sync_short::sptr wifi_sync_short = ieee802_11::sync_short::make(0.56, 2, enable_log, enable_debug);
 	ieee802_11::sync_long::sptr wifi_sync_long = ieee802_11::sync_long::make(sync_length, enable_log, enable_debug);
-	ieee802_11::frame_equalizer::sptr frame_equalizer_blk = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,20e6,false, false);
+	if(!channel)
+		frame_equalizer_blk_0 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
+	else
+		frame_equalizer_blk_1 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
 	blocks::streams_to_vector::sptr streams_to_vector = blocks::streams_to_vector::make(VECTOR_SIZE, FFT_SIZE);
 	fft::fft_vcc::sptr fft_cc = fft::fft_vcc::make(FFT_SIZE, true, fft::window::rectangular(FFT_SIZE), true, 1);
 	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE*sizeof(std::complex<float>),FFT_SIZE);
@@ -292,43 +285,7 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	ieee802_11::parse_mac::sptr parse_mac = ieee802_11::parse_mac::make(enable_log, enable_debug);
 #endif
 	foo::wireshark_connector::sptr wireshark = foo::wireshark_connector::make(foo::LinkType::WIFI, enable_debug);
-	if(ntwrkscan){
-		char read_path[100]={0x00};
-		char write_path[100]={0x00};
-		sprintf(read_path,"/tmp/command_read_db_%d",channel);
-		sprintf(write_path,"/tmp/command_write_db_%d",channel);
-		while(!ready){}
-		//std::cout<<"demod ready"<<std::endl;
-		boost::thread t1(change_freq, channel, channel_list_band_a, 'a', 48, frame_equalizer_blk, rx_stream, usrp);
-	}else{
-#if 1
-		if(channel_list[0]>'1'){
-			int32_t chann_list[60]={0x00}, i=0x00;
-			char *token;
-			channel_list = channel_list+1;
-			token = strtok(channel_list,",");
-			while(token!=NULL){
-				//printf("channel: %s\n", token);
-				chann_list[i++] = atoi(token);
-				token = strtok(token,NULL);
-			}
-			char read_path[100]={0x00};
-			//char write_path[100]={0x00};
-			sprintf(read_path,"/tmp/command_read_db_%d",channel);
-			//sprintf(write_path,"/tmp/command_write_db_%d",channel);
-			while(!ready){}
-			boost::thread t1(change_freq, channel, chann_list, 'a', i-1, frame_equalizer_blk, rx_stream, usrp);
-		}else{
-			int32_t channel = atoi(channel_list+1);
-			double freq = find_freq(channel, 'a');
-			frame_equalizer_blk->set_frequency(freq);
-		}
-#endif
-		int32_t channel = atoi(channel_list);
-		double freq = find_freq(channel, 'a');
-		frame_equalizer_blk->set_frequency(freq);
-	}
-	top_block_sptr tb(make_top_block("wifi_rx"));
+	top_block_sptr tb(make_top_block("wifi_rx_a"));
 	tb->connect(fd_source,0x00,delay_a,0x00);
 	tb->connect(fd_source,0x00,complex2mag_a,0x00);
 	tb->connect(fd_source,0x00,multiply_cc,0x00);
@@ -348,22 +305,25 @@ void wifi_demod_band_a(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	tb->connect(wifi_sync_long,0x00,stream_to_vect,0x00);
 	tb->connect(stream_to_vect,0x00,fft_cc,0x00);
 	//tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
-	tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
-	tb->connect(frame_equalizer_blk,0x00,decode_mac, 0x00);
+	if(!channel){
+		tb->connect(fft_cc,0x00,frame_equalizer_blk_0,0x00);
+		tb->connect(frame_equalizer_blk_0,0x00,decode_mac, 0x00);
+	}else{
+		tb->connect(fft_cc,0x00,frame_equalizer_blk_1,0x00);
+		tb->connect(frame_equalizer_blk_1,0x00,decode_mac, 0x00);
+	}
 #if 1
 	tb->msg_connect(decode_mac, "out", parse_mac, "in");
 #endif
 	tb->msg_connect(decode_mac, "out", wireshark, "in");
-	//tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
 	tb->connect(wireshark, 0x00, null_sinks, 0x00);
-	//tb->connect(wireshark,0, filesink,0);
 	tb->start();
 	tb->wait();
 	sem_wait(&stop_process);
 	//std::cout<<"test"<<std::endl;
 }
 
-void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp){
+void wifi_demod_band_g(int8_t channel){
 	vipl_printf("info: Demodualtion for Band G started",error_lvl, __FILE__, __LINE__);
 	char fifo_name[30]={0x00};
 	sprintf(fifo_name,"/tmp/samples_write_%d", channel);
@@ -402,7 +362,10 @@ void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	ieee802_11::moving_average_ff::sptr moving_average_float = ieee802_11::moving_average_ff::make(MOVING_AVERAGE_LENGTH);
 	ieee802_11::sync_short::sptr wifi_sync_short = ieee802_11::sync_short::make(0.56, 2, enable_log, enable_debug);
 	ieee802_11::sync_long::sptr wifi_sync_long = ieee802_11::sync_long::make(sync_length, enable_log, enable_debug);
-	ieee802_11::frame_equalizer::sptr frame_equalizer_blk = ieee802_11::frame_equalizer::make(channel_estimation_algo,2412000000.0,20e6,false, false);
+	if(!channel)
+		frame_equalizer_blk_0 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
+	else
+		frame_equalizer_blk_1 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
 	blocks::streams_to_vector::sptr streams_to_vector = blocks::streams_to_vector::make(VECTOR_SIZE, FFT_SIZE);
 	fft::fft_vcc::sptr fft_cc = fft::fft_vcc::make(FFT_SIZE, true, fft::window::rectangular(FFT_SIZE), true, 1);
 	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE*sizeof(std::complex<float>),FFT_SIZE);
@@ -411,42 +374,7 @@ void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	ieee802_11::parse_mac::sptr parse_mac = ieee802_11::parse_mac::make(enable_log, enable_debug);
 #endif
 	foo::wireshark_connector::sptr wireshark = foo::wireshark_connector::make(foo::LinkType::WIFI, enable_debug);
-	if(ntwrkscan){
-		char read_path[100]={0x00};
-		char write_path[100]={0x00};
-		sprintf(read_path,"/tmp/command_read_db_%d",channel);
-		sprintf(write_path,"/tmp/command_write_db_%d",channel);
-		while(!ready){}
-		boost::thread t1(change_freq, channel, channel_list_band_bg, 'g', 15, frame_equalizer_blk, rx_stream, usrp);
-	}else{
-#if 1
-		if(channel_list[0]>'1'){
-			int32_t chann_list[60]={0x00}, i=0x00;
-			char *token;
-			channel_list = channel_list+1;
-			token = strtok(channel_list,",");
-			while(token!=NULL){
-				//printf("channel: %s\n", token);
-				chann_list[i++] = atoi(token);
-				token = strtok(token,NULL);
-			}
-			char read_path[100]={0x00};
-			//char write_path[100]={0x00};
-			sprintf(read_path,"/tmp/command_read_db_%d",channel);
-			//sprintf(write_path,"/tmp/command_write_db_%d",channel);
-			while(!ready){}
-			boost::thread t1(change_freq, channel, chann_list, 'g', i-1, frame_equalizer_blk, rx_stream, usrp);
-		}else{
-			int32_t channel = atoi(channel_list+1);
-			double freq = find_freq(channel, 'g');
-			frame_equalizer_blk->set_frequency(freq);
-		}
-#endif
-		int32_t channel = atoi(channel_list);
-		double freq = find_freq(channel, 'g');
-		frame_equalizer_blk->set_frequency(freq);
-	}
-	top_block_sptr tb(make_top_block("wifi_rx"));
+	top_block_sptr tb(make_top_block("wifi_rx_g"));
 	tb->connect(fd_source,0x00,delay_a,0x00);
 	tb->connect(fd_source,0x00,complex2mag_a,0x00);
 	tb->connect(fd_source,0x00,multiply_cc,0x00);
@@ -466,21 +394,24 @@ void wifi_demod_band_g(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	tb->connect(wifi_sync_long,0x00,stream_to_vect,0x00);
 	tb->connect(stream_to_vect,0x00,fft_cc,0x00);
 	//tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
-	tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
-	tb->connect(frame_equalizer_blk,0x00,decode_mac, 0x00);
+	if(!channel){
+		tb->connect(fft_cc,0x00,frame_equalizer_blk_0,0x00);
+		tb->connect(frame_equalizer_blk_0,0x00,decode_mac, 0x00);
+	}else{
+		tb->connect(fft_cc,0x00,frame_equalizer_blk_1,0x00);
+		tb->connect(frame_equalizer_blk_1,0x00,decode_mac, 0x00);
+	}
 #if 1
 	tb->msg_connect(decode_mac, "out", parse_mac, "in");
 #endif
 	tb->msg_connect(decode_mac, "out", wireshark, "in");
-	//tb->connect(wireshark, 0x00, fd_sink_blk, 0x00);
-	//tb->connect(wireshark,0, filesink,0);
 	tb->connect(wireshark, 0x00, null_sinks, 0x00);
 	tb->start();
 	tb->wait();
 	sem_wait(&stop_process);
 }
 
-void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan, uhd::rx_streamer::sptr rx_stream, uhd::usrp::multi_usrp::sptr usrp){
+void wifi_demod_band_p(int8_t channel){
 	vipl_printf("info: Demodualtion for Band P started",error_lvl, __FILE__, __LINE__);
 	char fifo_name[30]={0x00};
 	sprintf(fifo_name,"/tmp/samples_write_%d", channel);
@@ -520,7 +451,10 @@ void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	ieee802_11::moving_average_ff::sptr moving_average_float = ieee802_11::moving_average_ff::make(MOVING_AVERAGE_LENGTH);
 	ieee802_11::sync_short::sptr wifi_sync_short = ieee802_11::sync_short::make(0.56, 2, enable_log, enable_debug);
 	ieee802_11::sync_long::sptr wifi_sync_long = ieee802_11::sync_long::make(sync_length, enable_log, enable_debug);
-	ieee802_11::frame_equalizer::sptr frame_equalizer_blk = ieee802_11::frame_equalizer::make(channel_estimation_algo,5860000000.0,20e6,false, false);
+	if(!channel)
+		frame_equalizer_blk_0 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
+	else
+		frame_equalizer_blk_1 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
 	blocks::streams_to_vector::sptr streams_to_vector = blocks::streams_to_vector::make(VECTOR_SIZE, FFT_SIZE);
 	fft::fft_vcc::sptr fft_cc = fft::fft_vcc::make(FFT_SIZE, true, fft::window::rectangular(FFT_SIZE), true, 1);
 	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE*sizeof(std::complex<float>),FFT_SIZE);
@@ -529,44 +463,7 @@ void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	ieee802_11::parse_mac::sptr parse_mac = ieee802_11::parse_mac::make(enable_log, enable_debug);
 #endif
 	foo::wireshark_connector::sptr wireshark = foo::wireshark_connector::make(foo::LinkType::WIFI, enable_debug);
-	if(ntwrkscan){
-		char read_path[100]={0x00};
-		char write_path[100]={0x00};
-		sprintf(read_path,"/tmp/command_read_db_%d",channel);
-		sprintf(write_path,"/tmp/command_write_db_%d",channel);
-		//fifo_read_write fifo_command(read_path, write_path);
-		while(!ready){}
-		boost::thread t1(change_freq, channel, channel_list_band_p, 'p', 7, frame_equalizer_blk, rx_stream, usrp);
-	}else{
-#if 1
-		if(channel_list[0]>'1'){
-			int32_t chann_list[60]={0x00}, i=0x00;
-			char *token;
-			channel_list = channel_list+1;
-			token = strtok(channel_list,",");
-			while(token!=NULL){
-				//printf("channel: %s\n", token);
-				chann_list[i++] = atoi(token);
-				token = strtok(token,NULL);
-			}
-			char read_path[100]={0x00};
-			//char write_path[100]={0x00};
-			sprintf(read_path,"/tmp/command_read_db_%d",channel);
-			//sprintf(write_path,"/tmp/command_write_db_%d",channel);
-			//fifo_read_write fifo_command(read_path, read_path);
-			while(!ready){}
-			boost::thread t1(change_freq, channel, chann_list, 'p', i-1, frame_equalizer_blk, rx_stream, usrp);
-		}else{
-			int32_t channel = atoi(channel_list+1);
-			double freq = find_freq(channel, 'p');
-			frame_equalizer_blk->set_frequency(freq);
-		}
-#endif
-		int32_t channel = atoi(channel_list);
-		double freq = find_freq(channel, 'p');
-		frame_equalizer_blk->set_frequency(freq);
-	}
-	top_block_sptr tb(make_top_block("wifi_rx"));
+	top_block_sptr tb(make_top_block("wifi_rx_p"));
 	tb->connect(fd_source,0x00,delay_a,0x00);
 	tb->connect(fd_source,0x00,complex2mag_a,0x00);
 	tb->connect(fd_source,0x00,multiply_cc,0x00);
@@ -586,8 +483,13 @@ void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	tb->connect(wifi_sync_long,0x00,stream_to_vect,0x00);
 	tb->connect(stream_to_vect,0x00,fft_cc,0x00);
 	//tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
-	tb->connect(fft_cc,0x00,frame_equalizer_blk,0x00);
-	tb->connect(frame_equalizer_blk,0x00,decode_mac, 0x00);
+	if(!channel){
+		tb->connect(fft_cc,0x00,frame_equalizer_blk_0,0x00);
+		tb->connect(frame_equalizer_blk_0,0x00,decode_mac, 0x00);
+	}else{
+		tb->connect(fft_cc,0x00,frame_equalizer_blk_1,0x00);
+		tb->connect(frame_equalizer_blk_1,0x00,decode_mac, 0x00);
+	}
 #if 1
 	tb->msg_connect(decode_mac, "out", parse_mac, "in");
 #endif
@@ -600,3 +502,123 @@ void wifi_demod_band_p(int8_t channel, char *channel_list, bool ntwrkscan, uhd::
 	sem_wait(&stop_process);
 }
 
+int8_t hop_freq(char *device, int32_t frequencyMhz){
+	 /* Create the socket and connect to it. */
+	 struct nl_sock *sckt = nl_socket_alloc();
+	 genl_connect(sckt);
+	 /* Allocate a new message. */
+	 struct nl_msg *mesg = nlmsg_alloc();
+	 /* Check /usr/include/linux/nl80211.h for a list of commands and attributes. */
+	 enum nl80211_commands command = NL80211_CMD_SET_WIPHY;
+	 /* Create the message so it will send a command to the nl80211 interface. */
+	 genlmsg_put(mesg, 0, 0, genl_ctrl_resolve(sckt, "nl80211"), 0, 0, command, 0);
+	 /* Add specific attributes to change the frequency of the device. */
+	 NLA_PUT_U32(mesg, NL80211_ATTR_IFINDEX, if_nametoindex(device));
+	 NLA_PUT_U32(mesg, NL80211_ATTR_WIPHY_FREQ, frequencyMhz);
+	 /* Finally send it and receive the amount of bytes sent. */
+	 int ret = nl_send_auto_complete(sckt, mesg);
+	//    printf("%d Bytes Sent\n", ret);
+	 nlmsg_free(mesg);
+	 return 0;
+	 nla_put_failure:
+	     nlmsg_free(mesg);
+	     return 1;
+}
+
+void dump_packet(u_char *args, const struct pcap_pkthdr *pkh, const u_char *packet){
+    if(pkh->len<24)
+        return;
+    int32_t len = strlen(packet);
+    if(len<=0&&len>65535)
+        return;
+    clock_gettime(CLOCK_MONOTONIC,&end_time);
+    clock_gettime(CLOCK_MONOTONIC,&channel_end_time);
+    pcap_dump((unsigned char*)dumpfile, pkh, packet);
+    if((channel_end_time.tv_sec-channel_start_time.tv_sec) >= 0.25){
+    	if(k==num_channels)
+    		k=0;
+    	int32_t freq = find_freq(channel_list_command[k++], "b")/1000000;
+    	//printf("index: %d channel: %d freq: %f\n",k-1,  channel_list_command[k-1], find_freq(channel_list_command[k-1], "b"));
+    	int8_t rtnval = hop_freq(dev, freq);
+    	if(rtnval!=0x00)
+    		vipl_printf("error: failed to change channel of interface", error_lvl, __FILE__, __LINE__);
+    	else
+    		vipl_printf("info: change channel of interface", error_lvl, __FILE__, __LINE__);
+    	clock_gettime(CLOCK_MONOTONIC,&channel_start_time);
+    }
+    if(end_time.tv_sec-start_time.tv_sec>=15){
+    	pcap_dump_close(dumpfile);
+        vipl_printf("info: pcap file created", error_lvl, __FILE__, __LINE__);
+        char command[100]={0x00};
+        bzero(dir_name, 200);
+        sprintf(dir_name, "%s/wpcap", homedir);
+        sprintf(command, "cp %s %s/", pcap_filename, dir_name);
+        system(command);
+        //std::cout<<command<<std::endl;
+        bzero(dir_name, 200);
+        sprintf(dir_name, "%s/wpcap_temp", homedir);
+        sprintf(command, "mv %s %s/", pcap_filename, dir_name);
+        system(command);
+        //std::cout<<command<<std::endl;
+        vipl_printf("info: file moved", error_lvl, __FILE__, __LINE__);
+        clock_gettime(CLOCK_MONOTONIC,&start_time);
+        start = clock();
+        sprintf(pcap_filename, "/etc/wifidump%lu.pcap", (unsigned long)start);
+        dumpfile = pcap_dump_open(descr, pcap_filename);
+        if(dumpfile == NULL){
+           vipl_printf("error: in opening output file", error_lvl, __FILE__, __LINE__);
+           return;
+        }
+    }
+    return;
+}
+
+void wifi_demod_band_b(struct command_from_DSP command){
+	vipl_printf("info: Demodualtion for Band B started",error_lvl, __FILE__, __LINE__);
+	char errbuf[PCAP_ERRBUF_SIZE];
+	char filter[] = "";
+	struct bpf_program fp;
+	int32_t rt, status;
+	clock_t start=0;
+	dev = command.interface;
+	num_channels = command.num_channels;
+	int32_t i=0;
+	if(command.num_channels>1){
+		char *token;
+		//printf("channel: %s\n", command.channel_list);
+		token = strtok(command.channel_list,",");
+		while(token!=NULL){
+			channel_list_command[i++] = atoi(token);
+			token = strtok(NULL,",");
+		}
+	}
+	if(dev == NULL){
+		vipl_printf(errbuf, error_lvl, __FILE__, __LINE__);
+	    return;
+	}
+	descr = pcap_create(dev, errbuf);
+	rt = pcap_set_rfmon(descr, 1);
+	pcap_set_snaplen(descr, 2048);
+	pcap_set_promisc(descr, 1);
+	pcap_set_timeout(descr, 512);
+	status = pcap_activate(descr);
+	if((homedir = getenv("HOME"))==NULL)
+	  homedir = getpwuid(getuid())->pw_dir;
+	if((status = pcap_compile(descr, &fp, filter, 0, 0)) == -1){
+		vipl_printf("error: pcap_compile() failed", error_lvl, __FILE__, __LINE__);
+	    return;
+	}
+	status = pcap_setfilter(descr, &fp);
+	start = clock();
+	sprintf(pcap_filename, "/etc/wifidump%lu.pcap", (unsigned long)start);
+	dumpfile = pcap_dump_open(descr, pcap_filename);
+	if(dumpfile == NULL){
+		vipl_printf("error: in opening output file", error_lvl, __FILE__, __LINE__);
+	    return;
+	}
+	clock_gettime(CLOCK_MONOTONIC,&start_time);
+	clock_gettime(CLOCK_MONOTONIC,&channel_start_time);
+	pcap_loop(descr, -1, dump_packet, "a");
+    pcap_close(descr);
+    return;
+}
