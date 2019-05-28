@@ -214,7 +214,6 @@ double find_freq(int32_t ch, char *band){
 }
 
 int8_t shift_freq(double freq, int8_t channel){
-	//std::cout<<"channel "<<channel<<std::endl;
 	if(!channel)
 		frame_equalizer_blk_0->set_frequency(freq);
 	else
@@ -320,7 +319,6 @@ void wifi_demod_band_a(int8_t channel){
 	tb->start();
 	tb->wait();
 	sem_wait(&stop_process);
-	//std::cout<<"test"<<std::endl;
 }
 
 void wifi_demod_band_g(int8_t channel){
@@ -554,16 +552,14 @@ void dump_packet(u_char *args, const struct pcap_pkthdr *pkh, const u_char *pack
         sprintf(dir_name, "%s/wpcap", homedir);
         sprintf(command, "cp %s %s/", pcap_filename, dir_name);
         system(command);
-        //std::cout<<command<<std::endl;
         bzero(dir_name, 200);
         sprintf(dir_name, "%s/wpcap_temp", homedir);
         sprintf(command, "mv %s %s/", pcap_filename, dir_name);
         system(command);
-        //std::cout<<command<<std::endl;
         vipl_printf("info: file moved", error_lvl, __FILE__, __LINE__);
         clock_gettime(CLOCK_MONOTONIC,&start_time);
         start = clock();
-        sprintf(pcap_filename, "/etc/wifidump%lu.pcap", (unsigned long)start);
+        sprintf(pcap_filename, "%s/tmp_pcap_old/wifidump%lu.pcap", homedir, (unsigned long)start);
         dumpfile = pcap_dump_open(descr, pcap_filename);
         if(dumpfile == NULL){
            vipl_printf("error: in opening output file", error_lvl, __FILE__, __LINE__);
@@ -592,6 +588,11 @@ void wifi_demod_band_b(struct command_from_DSP command){
 			token = strtok(NULL,",");
 		}
 	}
+	if(command.ntwrkscan){
+		memcpy(channel_list_command, channel_list_band_bg, sizeof(int32_t)*channel_length_G);
+		num_channels = channel_length_G;
+	}
+
 	if(dev == NULL){
 		vipl_printf(errbuf, error_lvl, __FILE__, __LINE__);
 	    return;
@@ -604,13 +605,9 @@ void wifi_demod_band_b(struct command_from_DSP command){
 	status = pcap_activate(descr);
 	if((homedir = getenv("HOME"))==NULL)
 	  homedir = getpwuid(getuid())->pw_dir;
-	if((status = pcap_compile(descr, &fp, filter, 0, 0)) == -1){
-		vipl_printf("error: pcap_compile() failed", error_lvl, __FILE__, __LINE__);
-	    return;
-	}
-	status = pcap_setfilter(descr, &fp);
+
 	start = clock();
-	sprintf(pcap_filename, "/etc/wifidump%lu.pcap", (unsigned long)start);
+	sprintf(pcap_filename, "%s/tmp_pcap_old/wifidump%lu.pcap", homedir, (unsigned long)start);
 	dumpfile = pcap_dump_open(descr, pcap_filename);
 	if(dumpfile == NULL){
 		vipl_printf("error: in opening output file", error_lvl, __FILE__, __LINE__);

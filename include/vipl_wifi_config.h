@@ -52,20 +52,20 @@ int8_t shift_freq(double freq, int8_t channel);
 
 extern sem_t stop_process;
 
+#pragma pack (push,1)
 struct wifiConfig{
 	int8_t mode;
 	uint8_t channel;
-	int32_t channel_list_command[50];
 	int32_t num_channel;
 	double rate;
 	double spb;
 	double freq;
 	bool is_hopping;
+	int32_t channel_list_command[50];
 	char band[4];
 	char technology[50];
-	struct command_from_DSP *command;
 };
-
+#pragma pop()
 
 extern int32_t channel_list_band_p[channel_length_P];
 extern int32_t channel_list_band_bg[channel_length_G];

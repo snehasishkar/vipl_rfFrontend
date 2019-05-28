@@ -371,8 +371,9 @@ void vipl_rf_interface::start_stream(struct wifiConfig config){
 		double elapsed_time = (end.tv_sec-start.tv_sec)*1e3;
 		if(config.is_hopping && (elapsed_time>=250)){
 			if(strcmp(config.technology,"WIFI")==0x00){
-				if((++counter)>=config.num_channel)
+				if((++counter)>=config.num_channel){
 					counter = 0x00;
+				}
 				config.freq = find_freq(config.channel_list_command[counter], config.band);
 				uhd::stream_cmd_t stream_cmd_stop(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
 				rx_stream->issue_stream_cmd(stream_cmd_stop);
@@ -386,6 +387,7 @@ void vipl_rf_interface::start_stream(struct wifiConfig config){
 			}
 			clock_gettime(CLOCK_MONOTONIC,&start);
 		}
+#if 1
 		int32_t rtnval = samples_read_write_init.samplesWrite(&cb.front(),num_rx_samps*sizeof(std::complex<float>));
 		if(rtnval==-1)
 			vipl_printf("error: unable to read from USRP", error_lvl, __FILE__, __LINE__);
@@ -394,6 +396,7 @@ void vipl_rf_interface::start_stream(struct wifiConfig config){
 			sprintf(msg,"warning: Improper write! have wrote %d Bytes should have wrote %d", rtnval, (config.spb*sizeof(std::complex<float>)));
 			vipl_printf(msg, error_lvl, __FILE__, __LINE__);
 		}
+#endif
 		cb.clear();
 	}
 	vipl_printf("warning: stopping streaming mode", error_lvl, __FILE__, __LINE__);
@@ -478,11 +481,11 @@ void vipl_rf_interface::dequeue(void){
 					t1_demod[count_demod++] = boost::thread (wifi_demod_band_b, command);
 
 				}
-				//read
 				if(!command.db_board)
-					t2 = boost::thread(parse_packets, &rftap_dbA, command.db_board, error_lvl);
+					t2 = boost::thread(parse_packets, &rftap_dbA, command.handshake, command.offlinePcap, error_lvl);
+
 				else
-					t2 = boost::thread(parse_packets, &rftap_dbB, command.db_board, error_lvl);
+					t2 = boost::thread(parse_packets, &rftap_dbB, command.handshake, command.offlinePcap, error_lvl);
 			}
 #endif
 			if(command.init_board){
@@ -518,9 +521,10 @@ void vipl_rf_interface::dequeue(void){
 								config.rate = sample_rate;
 								config.num_channel = command.num_channels;
 								strcpy(config.technology, command.technology);
-								if(command.num_channels>1)
+								if(command.num_channels>1){
 									config.is_hopping = true;
-								strncpy(config.band, command.band, strlen(command.band));
+								}
+								strcpy(config.band, command.band);
 								t1[count++] = boost::thread(&vipl_rf_interface::start_stream, this, config);
 								break;
 						case 1: freq_rx_board_a = 0.00;
@@ -538,7 +542,7 @@ void vipl_rf_interface::dequeue(void){
 								config.rate = sample_rate;
 								config.num_channel = command.num_channels;
 								strcpy(config.technology, command.technology);
-								strncpy(config.band, command.band, strlen(command.band));
+								strcpy(config.band, command.band);
 								if(command.num_channels>1)
 									config.is_hopping = true;
 								t1[count++] = boost::thread (&vipl_rf_interface::start_stream, this, config);
@@ -598,7 +602,7 @@ void vipl_rf_interface::dequeue(void){
 						config.rate = sample_rate;
 						config.spb = 1e6;
 						strcpy(config.technology,command.technology);
-						strncpy(config.band, command.band, strlen(command.band));
+						strcpy(config.band, command.band);
 						config.is_hopping = true;
 						t1[count++] = boost::thread (&vipl_rf_interface::start_stream, this, config);
 						break;
@@ -616,7 +620,7 @@ void vipl_rf_interface::dequeue(void){
 						config.rate = sample_rate;
 						config.spb = 1e6;
 						strcpy(config.technology, command.technology);
-						strncpy(config.band, command.band, strlen(command.band));
+						strcpy(config.band, command.band);
 						config.is_hopping = true;
 						t1[count++] = boost::thread (&vipl_rf_interface::start_stream, this, config);
 						break;

@@ -8,6 +8,6 @@
 #ifndef PACKET_CAPTURE_H_
 #define PACKET_CAPTURE_H_
 
-int parse_packets(struct vipl_rf_tap *rf_tap_db, int8_t db_board, int32_t error_lvl);
+int parse_packets(struct vipl_rf_tap *rf_tap_db, char *handshake, char *offlinePcap, int32_t error_lvl);
 
 #endif /* PACKET_CAPTURE_H_ */

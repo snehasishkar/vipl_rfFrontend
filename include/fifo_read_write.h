@@ -26,7 +26,10 @@
 
 extern bool stop_read_fifo;
 
+#pragma pack (push,1)
+
 struct command_from_DSP{
+	int32_t num_channels;
 	uint8_t mode;
 	uint8_t db_board;
 	uint32_t mboard;
@@ -46,9 +49,11 @@ struct command_from_DSP{
 	char channel_list[14];
 	char band[3];
 	char technology[6];
-	int32_t num_channels;
 	char interface[50];
+	char handshake[200];
+	char offlinePcap[200];
 };
+#pragma pop()
 
 using namespace std;
 

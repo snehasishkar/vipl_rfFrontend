@@ -53,7 +53,7 @@ void fifo_read_write::fifo_read(){
 		}else{
 			char *msg=(char *)malloc(sizeof(char)*sizeof(command)*NMBELEMENT+20);
 			bzero(msg,sizeof(char)*sizeof(command)*NMBELEMENT);
-			sprintf(msg, "info: %d Bytes read %s", noofBytesAlreadyRead,(char *)buffer);
+			sprintf(msg, "info: %d Bytes read %s", noofBytesAlreadyRead, buffer);
 			vipl_printf(msg, error_lvl, __FILE__, __LINE__);
 			free(msg);
 		}

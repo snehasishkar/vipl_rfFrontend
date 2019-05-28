@@ -97,15 +97,18 @@ void parse_configfile(char *config_file_path){
 	int32_t fd_write = open("/tmp/pipe_command_read",666);
 	if(fd_write<=0)
 		goto label;
-
 	try{
 		cfg->parse(default_configFile);
 		cfg->listFullyScopedNames(m_scope.c_str(), "", Configuration::CFG_SCOPE, false, filter.c_str(), scopes);
 		int len = scopes.length();
 		char interface[50] = {0x00};
 		strcpy(interface, cfg->lookupString("", "interface.name"));
+		char handshake[200] = {'\0'};
+		strcpy(handshake, cfg->lookupString("", "handshake.path"));
+		char offlinePcap[200] = {'\0'};
+		strcpy(offlinePcap, cfg->lookupString("", "offline_pcap.path"));
 		for(int i=0; i<len; i++){
-			char *scope = new char(20);
+			char scope[20] = {0x00};
 			strcpy(scope, scopes[i]);
 			int32_t mode, db_board, mboard, num_channel;
 			bool change_freq, change_gain, init_board, ntwrkscan, getgps;
@@ -154,11 +157,12 @@ void parse_configfile(char *config_file_path){
             strcpy(command_db0.band, band);
             strcpy(command_db0.technology, technology);
             strcpy(command_db0.interface, interface);
+            strcpy(command_db0.handshake, handshake);
+            strcpy(command_db0.offlinePcap, offlinePcap);
             if(init_board||ntwrkscan){
            		command_db0.getgps = false;
            		command_db0.ntwrkscan = ntwrkscan;
            		command_db0.init_board = init_board;
-           		//std::cout<<command_db0.ntwrkscan<<std::endl;
            		uint8_t *buffer = (uint8_t*)malloc(sizeof(command_db0));
            		bzero(buffer,sizeof(char)*sizeof(command_db0));
            		memcpy(buffer, &command_db0, sizeof(command_db0));
@@ -244,6 +248,8 @@ void parse_configfile(char *config_file_path){
 		    strcpy(command_db1.band, band);
 		    strcpy(command_db1.technology, technology);
 		    strcpy(command_db1.interface, interface);
+		    //strcpy(command_db1.handshake, handshake);
+		    //strcpy(command_db1.offlinePcap, offlinePcap);
 		    if(init_board || ntwrkscan){
 		    	command_db1.getgps = false;
 		    	command_db1.ntwrkscan = ntwrkscan;
