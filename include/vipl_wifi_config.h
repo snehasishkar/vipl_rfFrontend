@@ -70,5 +70,6 @@ struct wifiConfig{
 extern int32_t channel_list_band_p[channel_length_P];
 extern int32_t channel_list_band_bg[channel_length_G];
 extern int32_t channel_list_band_a[channel_length_A];
+extern char oui[300];
 
 #endif /* INCLUDE_VIPL_WIFI_CONFIG_H_ */

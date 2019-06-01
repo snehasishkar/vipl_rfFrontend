@@ -24,7 +24,7 @@ void vipl_printf(char message[],int error_lvl,char file[],int line)
    switch(error_lvl)
    {
      case 1: printf("%s [%s:%d] %s\n",timestamp, file,line,message);break;
-     case 2: fp=fopen("/var/log/vipl_receiver.log","a+");
+     case 2: fp=fopen("/var/log/vipl_wifiServ.log","a+");
              fprintf(fp,"%s [%s:%d] %s\n",timestamp, file,line,message);
              fclose(fp);
              break;

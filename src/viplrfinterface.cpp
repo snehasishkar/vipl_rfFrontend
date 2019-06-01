@@ -482,10 +482,10 @@ void vipl_rf_interface::dequeue(void){
 
 				}
 				if(!command.db_board)
-					t2 = boost::thread(parse_packets, &rftap_dbA, command.handshake, command.offlinePcap, error_lvl);
+					t2 = boost::thread(parse_packets, &rftap_dbA, command.handshake, command.offlinePcap, oui, error_lvl);
 
 				else
-					t2 = boost::thread(parse_packets, &rftap_dbB, command.handshake, command.offlinePcap, error_lvl);
+					t2 = boost::thread(parse_packets, &rftap_dbB, command.handshake, command.offlinePcap, oui, error_lvl);
 			}
 #endif
 			if(command.init_board){
@@ -495,6 +495,7 @@ void vipl_rf_interface::dequeue(void){
 						mboard = command.mboard;
 						stop_rx = false;
 						stop_gps = false;
+						config.spb = 5e6;
 						if(command.num_channels>1){
 								char *token;
 								token = strtok(command.channel_list,",");
@@ -502,7 +503,6 @@ void vipl_rf_interface::dequeue(void){
 									config.channel_list_command[i++] = atoi(token);
 									token = strtok(NULL,",");
 								}
-								config.spb = 5e6;
 						}
 						switch(command.db_board){
 						case 0: freq_rx_board_b = 0.00;

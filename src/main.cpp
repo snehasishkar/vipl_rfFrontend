@@ -43,12 +43,18 @@ bool wait_done = false;
 bool stop_rx = false;
 bool stop_gps = false;
 bool stop_read_fifo = false;
+char oui[300] = {0x00};
+char interface[50] = {0x00};
 
 using namespace config4cpp;
 
 void printUsage(void){
-	fprintf(stderr,"\t ./viplrfFrontend -e <1/2/3>");
-	fprintf(stderr,"\t -e: error level <1/2/3>");
+	fprintf(stderr,"\t ./viplrfFrontend -e <1/2/3>\n");
+	fprintf(stdout,"\t -e:   error level (1/2/3)\n");
+	fprintf(stdout,"\t -c:   path to wifi configuration file\n");
+	fprintf(stdout,"\t -s:   path to settings file\n");
+	fprintf(stdout,"\t -m:   path to manufacturers list file\n");
+	fprintf(stdout,"\t -v:   version\n");
 }
 
 void version(void){
@@ -59,6 +65,13 @@ void intHandler(int dummy) {
 	stop_rx = true;
 	stop_gps = true;
 	stop_read_fifo = true;
+	if(strlen(interface)>0){
+		char comm[300] = {0x00};
+	    sprintf(comm, "ifconfig %s down", interface);
+	    system(comm);
+	    sprintf(comm, "ifconfig %s up", interface);
+	    system(comm);
+	}
 	vipl_printf("ALERT: sigint got..exiting!!", error_lvl, __FILE__, __LINE__);
 	sem_post(&stop_process);
 	sleep(3);
@@ -101,7 +114,6 @@ void parse_configfile(char *config_file_path){
 		cfg->parse(default_configFile);
 		cfg->listFullyScopedNames(m_scope.c_str(), "", Configuration::CFG_SCOPE, false, filter.c_str(), scopes);
 		int len = scopes.length();
-		char interface[50] = {0x00};
 		strcpy(interface, cfg->lookupString("", "interface.name"));
 		char handshake[200] = {'\0'};
 		strcpy(handshake, cfg->lookupString("", "handshake.path"));
@@ -175,7 +187,10 @@ void parse_configfile(char *config_file_path){
            		}else{
            			char *msg=(char *)malloc(sizeof(char)*sizeof(command_db0)+20);
            			bzero(msg,sizeof(char)*sizeof(command_db0));
-           			sprintf(msg, "info: %d Bytes wrote %s", noofBytesRead,(char *)buffer);
+           			char *buff = (char*) malloc(sizeof(command_db0));
+           			for(int j=0; j<sizeof(command_db0); j++)
+           				buff[j] = static_cast<char>(buffer[j]);
+           			sprintf(msg, "info: %d Bytes wrote %s", noofBytesRead, buff);
            			vipl_printf(msg, error_lvl, __FILE__, __LINE__);
            			free(msg);
            		}
@@ -405,7 +420,8 @@ int32_t main(int argc, char *argv[]){
 	}
 	//Run-time arguments passing
 	char command[300]={"../config/settings.sh"};
-	while((opt = getopt(argc, argv, "c:e:s:hv"))!= -1) {
+	strcpy(oui, "../config/oui.txt");
+	while((opt = getopt(argc, argv, "c:e:s:hv:m:"))!= -1) {
 		switch(opt){
 			case 'h': printUsage();
 	            	  exit(EXIT_SUCCESS);
@@ -419,8 +435,11 @@ int32_t main(int argc, char *argv[]){
 	        case 's': bzero(command,sizeof(char)*300);
 	        		  strcpy(command, optarg);
 	        	      break;
+	        case 'm': bzero(oui ,sizeof(char)*300);
+	        		  strcpy(oui, optarg);
+	        	      break;
 	        default: exit(EXIT_FAILURE);
-	            	   break;
+	            	  break;
 	    }
 	}
 	FILE* pipe = popen(command, "r");

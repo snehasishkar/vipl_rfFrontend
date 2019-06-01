@@ -524,6 +524,8 @@ int8_t hop_freq(char *device, int32_t frequencyMhz){
 }
 
 void dump_packet(u_char *args, const struct pcap_pkthdr *pkh, const u_char *packet){
+	if(stop_rx==true)
+		pcap_breakloop(descr);
     if(pkh->len<24)
         return;
     int32_t len = strlen(packet);
@@ -532,7 +534,7 @@ void dump_packet(u_char *args, const struct pcap_pkthdr *pkh, const u_char *pack
     clock_gettime(CLOCK_MONOTONIC,&end_time);
     clock_gettime(CLOCK_MONOTONIC,&channel_end_time);
     pcap_dump((unsigned char*)dumpfile, pkh, packet);
-    if((channel_end_time.tv_sec-channel_start_time.tv_sec) >= 0.25){
+    if(num_channels>1 && (channel_end_time.tv_sec-channel_start_time.tv_sec) >= 0.25){
     	if(k==num_channels)
     		k=0;
     	int32_t freq = find_freq(channel_list_command[k++], "b")/1000000;
@@ -588,11 +590,12 @@ void wifi_demod_band_b(struct command_from_DSP command){
 			token = strtok(NULL,",");
 		}
 	}
+	if(command.num_channels==1)
+		channel_list_command[0] = atoi(command.channel_list);
 	if(command.ntwrkscan){
 		memcpy(channel_list_command, channel_list_band_bg, sizeof(int32_t)*channel_length_G);
 		num_channels = channel_length_G;
 	}
-
 	if(dev == NULL){
 		vipl_printf(errbuf, error_lvl, __FILE__, __LINE__);
 	    return;
@@ -605,7 +608,14 @@ void wifi_demod_band_b(struct command_from_DSP command){
 	status = pcap_activate(descr);
 	if((homedir = getenv("HOME"))==NULL)
 	  homedir = getpwuid(getuid())->pw_dir;
-
+	if(num_channels==1){
+		int32_t freq = find_freq(channel_list_command[0], "b")/1000000;
+		int8_t rtnval = hop_freq(dev, freq);
+		if(rtnval!=0x00)
+			vipl_printf("error: failed to change channel of interface", error_lvl, __FILE__, __LINE__);
+		else
+			vipl_printf("info: change channel of interface", error_lvl, __FILE__, __LINE__);
+	}
 	start = clock();
 	sprintf(pcap_filename, "%s/tmp_pcap_old/wifidump%lu.pcap", homedir, (unsigned long)start);
 	dumpfile = pcap_dump_open(descr, pcap_filename);

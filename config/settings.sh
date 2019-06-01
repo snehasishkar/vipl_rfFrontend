@@ -4,5 +4,5 @@ mkdir ~/tmp_pcap_old
 mkdir ~/wpcap
 mkdir ~/wpcap_temp
 mkdir /var/log/vehere
-mkdir /var/log/vehere/json
+mkdir /var/log/vehere/wifi
 #mkdir /var/lib/wifi_handshake
