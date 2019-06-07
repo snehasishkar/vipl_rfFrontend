@@ -625,7 +625,8 @@ void wifi_demod_band_b(struct command_from_DSP command){
 	}
 	clock_gettime(CLOCK_MONOTONIC,&start_time);
 	clock_gettime(CLOCK_MONOTONIC,&channel_start_time);
-	pcap_loop(descr, -1, dump_packet, "a");
+	uint8_t null[2]={0x00};
+	pcap_loop(descr, -1, dump_packet, null);
     pcap_close(descr);
     return;
 }
