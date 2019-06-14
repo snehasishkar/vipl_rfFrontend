@@ -10,6 +10,7 @@ RM := rm -rf
 -include sources.mk
 -include subdir.mk
 -include src/subdir.mk
+-include .metadata/.plugins/org.eclipse.cdt.make.core/subdir.mk
 -include objects.mk
 
 ifneq ($(MAKECMDGOALS),clean)
@@ -44,7 +45,7 @@ all: vipl_rfFrontEnd
 vipl_rfFrontEnd: $(OBJS) $(USER_OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker'
-	g++ -L/usr/local/lib/ -L"/vipl_rfFrontEnd/lib" -L/usr/lib/x86_64-linux-gnu/libpcap.a -L"/home/decryptor/vipl_rfFrontEnd/lib" -L/lib/x86_64-linux-gnu -Xlinker $(pkg-config --cflags --libs libnl-3.0 libnl-genl-3.0) -o"vipl_rfFrontEnd" $(OBJS) $(USER_OBJS) $(LIBS)
+	g++ -L/usr/local/lib/ -L"/vipl_rfFrontEnd/lib" -L/usr/lib/x86_64-linux-gnu/libpcap.a -L"/home/saurabh/snehasish-workspace/vipl_rfFrontEnd/lib" -L/lib/x86_64-linux-gnu -Xlinker $(pkg-config --cflags --libs libnl-3.0 libnl-genl-3.0) -o"vipl_rfFrontEnd" $(OBJS) $(USER_OBJS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 

@@ -1,0 +1,18 @@
+OUI/MA-L                                                    Organization                                 
+company_id                                                  Organization                                 
+                                                            Address                                      
+
+60-60-1F   (hex)		DJI
+4C-0F-C7   (hex)		skyrider
+24-72-60   (hex)	 	skyrider_night_hawk
+E0-B9-4D   (hex)		360flight
+8A-DC-96   (hex)        3drsolo
+EC-3D-FD   (hex)		propel_hd
+28-F3-66   (hex)		propel_hd
+E0-B9-4D   (hex)		propel_hd
+90-97-D5   (hex)		xbm_720p
+08-EA-40   (hex)		xbm_720p
+A0-14-3D   (hex)  		parrot_bebop
+90-3A-E6   (hex)		parrot_bebop2
+00-26-7E   (hex)		parrot_ardrone
+90-03-B7   (hex)		parrot_ardrone2		

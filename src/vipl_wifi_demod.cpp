@@ -29,6 +29,8 @@
 #include <gnuradio/blocks/stream_to_vector.h>
 #include <gnuradio/blocks/file_sink.h>
 #include <gnuradio/blocks/null_sink.h>
+#include <gnuradio/filter/fir_filter_ccf.h>
+#include <gnuradio/filter/firdes.h>
 #include <pmt/pmt.h>
 
 #include <ieee802-11/moving_average_ff.h>
@@ -260,6 +262,7 @@ void wifi_demod_band_a(int8_t channel){
 	blocks::file_descriptor_source::sptr fd_source =  blocks::file_descriptor_source::make(sizeof(std::complex<float>)*1,fd_src, false);
 	//blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
 	//blocks::file_sink::sptr filesink = blocks::file_sink::make(sizeof(uint8_t)*1,"/home/decryptor/test1.pcap",true);
+
 	blocks::null_sink::sptr null_sinks = blocks::null_sink::make(sizeof(uint8_t)*1);
 	blocks::delay::sptr delay_a = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_A);
 	blocks::delay::sptr delay_b = blocks::delay::make(VECTOR_SIZE*sizeof(std::complex<float>), DELAY_VAR_B);
@@ -272,10 +275,12 @@ void wifi_demod_band_a(int8_t channel){
 	ieee802_11::moving_average_ff::sptr moving_average_float = ieee802_11::moving_average_ff::make(MOVING_AVERAGE_LENGTH);
 	ieee802_11::sync_short::sptr wifi_sync_short = ieee802_11::sync_short::make(0.56, 2, enable_log, enable_debug);
 	ieee802_11::sync_long::sptr wifi_sync_long = ieee802_11::sync_long::make(sync_length, enable_log, enable_debug);
-	if(!channel)
+	if(!channel){
 		frame_equalizer_blk_0 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
-	else
+
+	}else{
 		frame_equalizer_blk_1 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
+	}
 	blocks::streams_to_vector::sptr streams_to_vector = blocks::streams_to_vector::make(VECTOR_SIZE, FFT_SIZE);
 	fft::fft_vcc::sptr fft_cc = fft::fft_vcc::make(FFT_SIZE, true, fft::window::rectangular(FFT_SIZE), true, 1);
 	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE*sizeof(std::complex<float>),FFT_SIZE);
@@ -346,6 +351,7 @@ void wifi_demod_band_g(int8_t channel){
 #endif
 	enum Equalizer channel_estimation_algo = LS;
 	blocks::file_descriptor_source::sptr fd_source =  blocks::file_descriptor_source::make(sizeof(std::complex<float>)*1,fd_src, false);
+
 	//blocks::file_descriptor_sink::sptr fd_sink_blk = blocks::file_descriptor_sink::make(sizeof(uint8_t)*1,fd_sink);
 	//blocks::file_sink::sptr filesink = blocks::file_sink::make(sizeof(uint8_t)*1,"/home/decryptor/test1.pcap",true);
 	blocks::null_sink::sptr null_sinks = blocks::null_sink::make(sizeof(uint8_t)*1);
@@ -361,9 +367,9 @@ void wifi_demod_band_g(int8_t channel){
 	ieee802_11::sync_short::sptr wifi_sync_short = ieee802_11::sync_short::make(0.56, 2, enable_log, enable_debug);
 	ieee802_11::sync_long::sptr wifi_sync_long = ieee802_11::sync_long::make(sync_length, enable_log, enable_debug);
 	if(!channel)
-		frame_equalizer_blk_0 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
+		frame_equalizer_blk_0 = ieee802_11::frame_equalizer::make(channel_estimation_algo,2412000000.0,WIFI_SAMPLE_RATE_G,false, false);
 	else
-		frame_equalizer_blk_1 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
+		frame_equalizer_blk_1 = ieee802_11::frame_equalizer::make(channel_estimation_algo,2412000000.0,WIFI_SAMPLE_RATE_G,false, false);
 	blocks::streams_to_vector::sptr streams_to_vector = blocks::streams_to_vector::make(VECTOR_SIZE, FFT_SIZE);
 	fft::fft_vcc::sptr fft_cc = fft::fft_vcc::make(FFT_SIZE, true, fft::window::rectangular(FFT_SIZE), true, 1);
 	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE*sizeof(std::complex<float>),FFT_SIZE);
@@ -450,9 +456,9 @@ void wifi_demod_band_p(int8_t channel){
 	ieee802_11::sync_short::sptr wifi_sync_short = ieee802_11::sync_short::make(0.56, 2, enable_log, enable_debug);
 	ieee802_11::sync_long::sptr wifi_sync_long = ieee802_11::sync_long::make(sync_length, enable_log, enable_debug);
 	if(!channel)
-		frame_equalizer_blk_0 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
+		frame_equalizer_blk_0 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_P,false, false);
 	else
-		frame_equalizer_blk_1 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_A,false, false);
+		frame_equalizer_blk_1 = ieee802_11::frame_equalizer::make(channel_estimation_algo,5170000000.0,WIFI_SAMPLE_RATE_P,false, false);
 	blocks::streams_to_vector::sptr streams_to_vector = blocks::streams_to_vector::make(VECTOR_SIZE, FFT_SIZE);
 	fft::fft_vcc::sptr fft_cc = fft::fft_vcc::make(FFT_SIZE, true, fft::window::rectangular(FFT_SIZE), true, 1);
 	blocks::stream_to_vector::sptr stream_to_vect = blocks::stream_to_vector::make(VECTOR_SIZE*sizeof(std::complex<float>),FFT_SIZE);
@@ -537,13 +543,16 @@ void dump_packet(u_char *args, const struct pcap_pkthdr *pkh, const u_char *pack
     if(num_channels>1 && (channel_end_time.tv_sec-channel_start_time.tv_sec) >= 0.25){
     	if(k==num_channels)
     		k=0;
-    	int32_t freq = find_freq(channel_list_command[k++], "b")/1000000;
+    	double freq = find_freq(channel_list_command[k++], "b")/1000000;
     	//printf("index: %d channel: %d freq: %f\n",k-1,  channel_list_command[k-1], find_freq(channel_list_command[k-1], "b"));
     	int8_t rtnval = hop_freq(dev, freq);
     	if(rtnval!=0x00)
     		vipl_printf("error: failed to change channel of interface", error_lvl, __FILE__, __LINE__);
-    	else
-    		vipl_printf("info: change channel of interface", error_lvl, __FILE__, __LINE__);
+    	else{
+    		char msg[100]={0x00};
+    		sprintf(msg,"info: change frequency of interface %s to %f MHz", dev, freq);
+    		vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+    	}
     	clock_gettime(CLOCK_MONOTONIC,&channel_start_time);
     }
     if(end_time.tv_sec-start_time.tv_sec>=15){
@@ -609,7 +618,7 @@ void wifi_demod_band_b(struct command_from_DSP command){
 	if((homedir = getenv("HOME"))==NULL)
 	  homedir = getpwuid(getuid())->pw_dir;
 	if(num_channels==1){
-		int32_t freq = find_freq(channel_list_command[0], "b")/1000000;
+		double freq = find_freq(channel_list_command[0], "b")/1000000;
 		int8_t rtnval = hop_freq(dev, freq);
 		if(rtnval!=0x00)
 			vipl_printf("error: failed to change channel of interface", error_lvl, __FILE__, __LINE__);
@@ -618,6 +627,7 @@ void wifi_demod_band_b(struct command_from_DSP command){
 	}
 	start = clock();
 	sprintf(pcap_filename, "%s/tmp_pcap_old/wifidump%lu.pcap", homedir, (unsigned long)start);
+	//puts(pcap_filename);
 	dumpfile = pcap_dump_open(descr, pcap_filename);
 	if(dumpfile == NULL){
 		vipl_printf("error: in opening output file", error_lvl, __FILE__, __LINE__);
@@ -625,8 +635,9 @@ void wifi_demod_band_b(struct command_from_DSP command){
 	}
 	clock_gettime(CLOCK_MONOTONIC,&start_time);
 	clock_gettime(CLOCK_MONOTONIC,&channel_start_time);
-	uint8_t null[2]={0x00};
-	pcap_loop(descr, -1, dump_packet, null);
+	uint8_t args[2]={0x00};
+
+	pcap_loop(descr, -1, dump_packet, args);
     pcap_close(descr);
     return;
 }

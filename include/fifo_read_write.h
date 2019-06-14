@@ -32,7 +32,9 @@ struct command_from_DSP{
 	int32_t num_channels;
 	uint8_t mode;
 	uint8_t db_board;
+	uint8_t drone_dump_mode;
 	uint32_t mboard;
+	uint32_t port_no;
 	bool change_freq;
 	bool change_gain;
 	bool init_board;
@@ -48,10 +50,12 @@ struct command_from_DSP{
 	char mboard_addr[34];
 	char channel_list[14];
 	char band[3];
-	char technology[6];
+	char technology[11];
 	char interface[50];
 	char handshake[200];
 	char offlinePcap[200];
+	char json_drone_path[200];
+	char drone_dump_addr[34];
 };
 #pragma pop()
 

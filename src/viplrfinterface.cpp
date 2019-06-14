@@ -18,6 +18,7 @@
 #include "../include/vipl_printf.h"
 #include "../include/vipl_wifi_config.h"
 #include "../include/packet_capture.h"
+#include "../include/packet_capture_drone.h"
 
 #define num_mboards 2
 
@@ -383,6 +384,33 @@ void vipl_rf_interface::start_stream(struct wifiConfig config){
 				rx_stream->issue_stream_cmd(stream_cmd_start);
 				if(shift_freq(config.freq, config.channel)!=0x00){
 					vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
+				}else{
+					if(error_lvl==3){
+						char msg[100]={0x00};
+						sprintf(msg,"debug: frequency hopped  to %fMHz", config.freq);
+						vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+					}
+				}
+			}
+			if(strcmp(config.technology,"DRONE_WIFI")==0x00){
+				if((++counter)>=config.num_channel){
+					counter = 0x00;
+				}
+				config.freq = find_freq(config.channel_list_command[counter], config.band);
+				uhd::stream_cmd_t stream_cmd_stop(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
+				rx_stream->issue_stream_cmd(stream_cmd_stop);
+				uhd::tune_request_t tune_request(config.freq, lo_offset);
+				usrp->set_rx_freq(tune_request);
+				uhd::stream_cmd_t stream_cmd_start(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+				rx_stream->issue_stream_cmd(stream_cmd_start);
+				if(shift_freq(config.freq, config.channel)!=0x00){
+					vipl_printf("error: unable to change frequency", error_lvl, __FILE__, __LINE__);
+				}else{
+					if(error_lvl==3){
+						char msg[100]={0x00};
+						sprintf(msg,"debug: frequency hopped  to %fMHz", config.freq);
+						vipl_printf(msg, error_lvl, __FILE__, __LINE__);
+					}
 				}
 			}
 			clock_gettime(CLOCK_MONOTONIC,&start);
@@ -434,7 +462,7 @@ void vipl_rf_interface::dequeue(void){
 			}
 			int rtnvalue = 0x00;
 #if 1
-			if(strcmp(command.technology,"WIFI")==0x00){
+			if((strcmp(command.technology,"WIFI")==0x00)||(strcmp(command.technology,"DRONE_WIFI")==0x00)){
 				command.samp_rate =0x00;
 				if(strcmp(command.band,"a")==0x00){
 					load_map(command.band);
@@ -481,11 +509,18 @@ void vipl_rf_interface::dequeue(void){
 					t1_demod[count_demod++] = boost::thread (wifi_demod_band_b, command);
 
 				}
-				if(!command.db_board)
-					t2 = boost::thread(parse_packets, &rftap_dbA, command.handshake, command.offlinePcap, oui, error_lvl);
-
-				else
-					t2 = boost::thread(parse_packets, &rftap_dbB, command.handshake, command.offlinePcap, oui, error_lvl);
+				if(strcmp(command.technology,"WIFI")==0x00){
+					if(!command.db_board)
+						t2 = boost::thread(parse_packets, &rftap_dbA, command.handshake, command.offlinePcap, oui, error_lvl);
+					else
+						t2 = boost::thread(parse_packets, &rftap_dbB, command.handshake, command.offlinePcap, oui, error_lvl);
+				}
+				if(strcmp(command.technology,"DRONE_WIFI")==0x00){
+					if(!command.db_board)
+						t2 = boost::thread(parse_packets_drone, &rftap_dbA, command.offlinePcap, oui, command.drone_dump_mode, command.port_no, command.drone_dump_addr, command.json_drone_path, error_lvl);
+					else
+						t2 = boost::thread(parse_packets_drone, &rftap_dbB, command.offlinePcap, oui, command.drone_dump_mode, command.port_no, command.drone_dump_addr, command.json_drone_path, error_lvl);
+				}
 			}
 #endif
 			if(command.init_board){

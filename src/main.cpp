@@ -65,12 +65,14 @@ void intHandler(int dummy) {
 	stop_rx = true;
 	stop_gps = true;
 	stop_read_fifo = true;
-	if(strlen(interface)>0){
+	if(strlen(interface)!=0){
 		char comm[300] = {0x00};
-	    sprintf(comm, "ifconfig %s down", interface);
-	    system(comm);
-	    sprintf(comm, "ifconfig %s up", interface);
-	    system(comm);
+		sprintf(comm, "ifconfig %s down", interface);
+		system(comm);
+		sprintf(comm, "iwconfig %s mode managed", interface);
+		system(comm);
+		sprintf(comm, "ifconfig %s up", interface);
+		system(comm);
 	}
 	vipl_printf("ALERT: sigint got..exiting!!", error_lvl, __FILE__, __LINE__);
 	sem_post(&stop_process);
@@ -119,13 +121,24 @@ void parse_configfile(char *config_file_path){
 		strcpy(handshake, cfg->lookupString("", "handshake.path"));
 		char offlinePcap[200] = {'\0'};
 		strcpy(offlinePcap, cfg->lookupString("", "offline_pcap.path"));
+		char json_drone_path[200] = {'\0'};
+		strcpy(json_drone_path, cfg->lookupString("drone_dumping_mode", "json.path"));
+		char drone_dump_addr[34] = {'\0'};
+		strcpy(drone_dump_addr, cfg->lookupString("drone_dumping_mode", "tcp.ip_addr"));
+		uint32_t port_no=0x00;
+		port_no = cfg->lookupInt("drone_dumping_mode", "tcp.port");
+		uint32_t drone_dump_mode=0x00;
+		if(strlen(json_drone_path)>0)
+			drone_dump_mode = 1;
+		else
+			drone_dump_mode = 0;
 		for(int i=0; i<len; i++){
 			char scope[20] = {0x00};
 			strcpy(scope, scopes[i]);
 			int32_t mode, db_board, mboard, num_channel;
 			bool change_freq, change_gain, init_board, ntwrkscan, getgps;
 			float freq, gain, samp_rate, atten, bandwidth, lo_offset, tx_power;
-			char mboard_addr[34], channel_list[14], band[3], technology[6];
+			char mboard_addr[34], channel_list[14], band[3], technology[11];
 			mode = cfg->lookupInt(scope, "db0.mode");
 			db_board = cfg->lookupInt(scope, "db0.db_board");
 		    mboard = cfg->lookupInt(scope, "db0.mboard");
@@ -164,6 +177,8 @@ void parse_configfile(char *config_file_path){
             command_db0.lo_offset = lo_offset;
             command_db0.tx_power = tx_power;
             command_db0.num_channels = num_channel;
+            command_db0.port_no = port_no;
+            command_db0.drone_dump_mode = drone_dump_mode;
             strcpy(command_db0.mboard_addr, mboard_addr);
             strcpy(command_db0.channel_list, channel_list);
             strcpy(command_db0.band, band);
@@ -171,6 +186,8 @@ void parse_configfile(char *config_file_path){
             strcpy(command_db0.interface, interface);
             strcpy(command_db0.handshake, handshake);
             strcpy(command_db0.offlinePcap, offlinePcap);
+            strcpy(command_db0.json_drone_path, json_drone_path);
+            strcpy(command_db0.drone_dump_addr, drone_dump_addr);
             if(init_board||ntwrkscan){
            		command_db0.getgps = false;
            		command_db0.ntwrkscan = ntwrkscan;
@@ -258,6 +275,8 @@ void parse_configfile(char *config_file_path){
 		    command_db1.lo_offset = lo_offset;
 		    command_db1.tx_power = tx_power;
 		    command_db1.num_channels = num_channel;
+            command_db1.port_no = port_no;
+            command_db1.drone_dump_mode = drone_dump_mode;
 		    strcpy(command_db1.mboard_addr, mboard_addr);
 		    strcpy(command_db1.channel_list, channel_list);
 		    strcpy(command_db1.band, band);
@@ -265,6 +284,8 @@ void parse_configfile(char *config_file_path){
 		    strcpy(command_db1.interface, interface);
 		    //strcpy(command_db1.handshake, handshake);
 		    //strcpy(command_db1.offlinePcap, offlinePcap);
+            //strcpy(command_db1.json_drone_path, json_drone_path);
+	        //strcpy(command_db1.drone_dump_addr, drone_dump_addr);
 		    if(init_board || ntwrkscan){
 		    	command_db1.getgps = false;
 		    	command_db1.ntwrkscan = ntwrkscan;
