@@ -121,6 +121,7 @@ void parse_configfile(char *config_file_path){
 		strcpy(handshake, cfg->lookupString("", "handshake.path"));
 		char offlinePcap[200] = {'\0'};
 		strcpy(offlinePcap, cfg->lookupString("", "offline_pcap.path"));
+#if 1
 		char json_drone_path[200] = {'\0'};
 		strcpy(json_drone_path, cfg->lookupString("drone_dumping_mode", "json.path"));
 		char drone_dump_addr[34] = {'\0'};
@@ -132,6 +133,7 @@ void parse_configfile(char *config_file_path){
 			drone_dump_mode = 1;
 		else
 			drone_dump_mode = 0;
+#endif
 		for(int i=0; i<len; i++){
 			char scope[20] = {0x00};
 			strcpy(scope, scopes[i]);

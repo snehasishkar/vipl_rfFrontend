@@ -47,15 +47,15 @@ struct command_from_DSP{
 	double bandwidth;
 	double lo_offset;
 	double tx_power;
-	char mboard_addr[34];
-	char channel_list[14];
 	char band[3];
 	char technology[11];
+	char channel_list[14];
+	char mboard_addr[34];
+	char drone_dump_addr[34];
 	char interface[50];
 	char handshake[200];
 	char offlinePcap[200];
 	char json_drone_path[200];
-	char drone_dump_addr[34];
 };
 #pragma pop()
 
